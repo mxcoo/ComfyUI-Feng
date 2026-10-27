@@ -161,7 +161,7 @@ class FengBatchImageLoader(io.ComfyNode):
             node_id="FengBatchImageLoader",
             display_name="Feng · 批量图片加载",
             category="Feng/图像",
-            description="拖拽上传或从 input/output 选取多张图片，按面板顺序输出图像组批次，另有图像1..图像10 单图口、遮罩、次数与文件名。第一张可以画笔编辑遮罩。",
+            description="拖拽上传或从 input/output 选取多张图片，按面板顺序输出图像组批次，另有图像1..图像10 单图口、遮罩、次数与文件名。第一张可以画笔编辑遮罩；遮罩口只有一个，固定取第一张。",
             search_aliases=["批量加载", "多图", "batch image", "load images", "拖拽上传", "图像组"],
             inputs=[
                 io.Boolean.Input(
@@ -174,7 +174,7 @@ class FengBatchImageLoader(io.ComfyNode):
                     "alpha_as_mask",
                     display_name="用 Alpha 作遮罩",
                     default=True,
-                    tooltip="只对第一张生效：关掉后第一张的遮罩也为 0。其余图片没有遮罩。",
+                    tooltip="只对第一张生效：关掉后第一张的遮罩也为 0。遮罩口只输出这一张（[1,H,W]），不是批次。",
                 ),
                 io.String.Input(
                     IMAGES_INPUT,
@@ -208,10 +208,12 @@ class FengBatchImageLoader(io.ComfyNode):
     def fingerprint_inputs(cls, keep_size, alpha_as_mask, images, use_slots):
         entries = [entry for entry in parse_entries(images) if entry["selected"]]
         stamps = []
-        for entry in entries:
+        for index, entry in enumerate(entries):
             try:
                 stat = os.stat(_resolve_entry_path(entry))
-                stamps.append(f"{_entry_label(entry)}:{stat.st_mtime_ns}:{stat.st_size}:{entry['mask']}")
+                # 只有第一张的遮罩参与计算，其他条目的 mask 一律忽略
+                mask_name = entry["mask"] if index == 0 else ""
+                stamps.append(f"{_entry_label(entry)}:{stat.st_mtime_ns}:{stat.st_size}:{mask_name}")
             except Exception:
                 stamps.append(f"{_entry_label(entry)}:missing")
         return f"{keep_size}|{alpha_as_mask}|{use_slots}|" + "|".join(stamps)
@@ -238,8 +240,27 @@ class FengBatchImageLoader(io.ComfyNode):
 
         batch_tensors: list[torch.Tensor] = []
         native_tensors: list[torch.Tensor] = []
-        mask_tensors: list[torch.Tensor] = []
         names: list[str] = []
+
+        # 遮罩只来自第一张图：画笔优先，其次 alpha，都没有就全 0。
+        # 「遮罩」口永远是单张 [1, H, W]；其他图片不读取 mask，也不会进这个口。
+        first_entry, first_image = loaded[0]
+        mask_pil = _load_painted_mask_pil(first_entry)
+        if mask_pil is None and alpha_as_mask and first_image.mode in ("RGBA", "LA"):
+            mask_pil = first_image.getchannel("A").convert("L")
+        if mask_pil is not None and mask_pil.size != first_image.size:
+            mask_pil = mask_pil.resize(first_image.size, Image.LANCZOS)
+
+        if mask_pil is None:
+            mask_tensor = torch.zeros((1, batch_size[1], batch_size[0]), dtype=torch.float32)
+        else:
+            if mask_pil.size == batch_size:
+                aligned = mask_pil
+            elif keep_size:
+                aligned = _fit_pil(mask_pil, batch_size)
+            else:
+                aligned = _pad_pil(mask_pil, batch_size)
+            mask_tensor = _pil_to_mask(aligned)
 
         for index, (entry, image) in enumerate(loaded):
             native_tensors.append(_to_rgb_tensor(image))
@@ -250,33 +271,10 @@ class FengBatchImageLoader(io.ComfyNode):
             else:
                 fitted = _pad_pil(image, batch_size)
             batch_tensors.append(_to_rgb_tensor(fitted))
-
-            # 遮罩只有第一张有：画笔优先，其次 alpha，其余图片一律无遮罩
-            mask_pil: Image.Image | None = None
-            if index == 0:
-                mask_pil = _load_painted_mask_pil(entry)
-                if mask_pil is None and alpha_as_mask and image.mode in ("RGBA", "LA"):
-                    mask_pil = image.getchannel("A").convert("L")
-                if mask_pil is not None and mask_pil.size != image.size:
-                    mask_pil = mask_pil.resize(image.size, Image.LANCZOS)
-
-            if mask_pil is None:
-                mask_tensors.append(
-                    torch.zeros((1, batch_size[1], batch_size[0]), dtype=torch.float32)
-                )
-            else:
-                if mask_pil.size == batch_size:
-                    aligned = mask_pil
-                elif keep_size:
-                    aligned = _fit_pil(mask_pil, batch_size)
-                else:
-                    aligned = _pad_pil(mask_pil, batch_size)
-                mask_tensors.append(_pil_to_mask(aligned))
-
             names.append(_entry_label(entry))
 
         batch = torch.cat(batch_tensors, dim=0)
-        mask_batch = torch.cat(mask_tensors, dim=0)
+        mask_output = mask_tensor
         # 列表用的源：统一尺寸时是缩放后的图，保持原尺寸时就是各图原样（可混尺寸）
         slots_source = batch_tensors if keep_size else native_tensors
         # 列表元素去掉批维（[H,W,3]）：这样 PreviewImage 迭代 list 时拿到的是单张图，
@@ -291,7 +289,7 @@ class FengBatchImageLoader(io.ComfyNode):
             # 关掉时：图像1 输出图片列表（逐张、可混尺寸），其余单图口不输出内容
             slots = [image_list] + [None] * (SLOT_COUNT - 1)
 
-        return io.NodeOutput(batch, len(names), "\n".join(names), mask_batch, *slots)
+        return io.NodeOutput(batch, len(names), "\n".join(names), mask_output, *slots)
 
 
 def _register_routes() -> None:

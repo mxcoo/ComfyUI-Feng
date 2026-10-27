@@ -43,12 +43,13 @@ function readList(node) {
     }
     return data
       .filter((item) => item && typeof item.name === "string" && item.name)
-      .map((item) => ({
+      .map((item, index) => ({
         name: item.name,
         subfolder: typeof item.subfolder === "string" ? item.subfolder : "",
         type: item.type === "output" ? "output" : "input",
         selected: item.selected !== false,
-        mask: typeof item.mask === "string" ? item.mask : "",
+        // 遮罩只属于第一张；旧存档里其他条目带的 mask 直接丢弃
+        mask: index === 0 && typeof item.mask === "string" ? item.mask : "",
       }));
   } catch (error) {
     return [];
@@ -541,7 +542,17 @@ function setupPanel(node) {
     status.style.color = isError ? "#ff9b9b" : "#8a8a8a";
   }
 
+  // 整个面板只有第一张能带遮罩，任何改动落盘前都先把其他条目的 mask 清掉
+  function sanitizeMasks() {
+    list.forEach((entry, index) => {
+      if (index !== 0) {
+        entry.mask = "";
+      }
+    });
+  }
+
   function persist() {
+    sanitizeMasks();
     writeList(node, list);
   }
 
@@ -717,7 +728,7 @@ function setupPanel(node) {
         "padding:3px 4px;font-size:11px;line-height:14px;height:14px;box-sizing:content-box;" +
         "overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#cfcfcf;";
 
-      if (entry.mask) {
+      if (index === 0 && entry.mask) {
         const maskBadge = document.createElement("div");
         maskBadge.textContent = "遮罩";
         maskBadge.style.cssText =
