@@ -1,0 +1,23 @@
+[project]
+name = "feng"
+description = "ComfyUI 自定义节点：多功能提示词预设 + 批量图片加载"
+version = "0.1.0"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = []
+classifiers = [
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+]
+
+# 发布到 ComfyUI Registry 时用到的元数据，本地加载不需要填。
+# 注意：这里不要再写 web = "web"，否则会和 __init__.py 里的 WEB_DIRECTORY 重复注册，
+# 前端会加载两遍。详见 docs/06-packaging.md。
+[project.urls]
+Repository = "https://github.com/mxcoo/ComfyUI-Feng"
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "Feng"
+Icon = ""

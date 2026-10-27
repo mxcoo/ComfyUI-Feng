@@ -1,0 +1,5 @@
+# 本插件不依赖任何第三方包，所以这里留空即可（ComfyUI 会跳过安装）。
+#
+# 需要第三方包时按普通 pip 格式写，例如：
+# numpy>=1.24
+# opencv-python-headless
