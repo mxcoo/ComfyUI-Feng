@@ -23,7 +23,7 @@ from comfy_api.latest import io
 
 IMAGES_INPUT = "images"
 MAX_IMAGES = 200
-# 独立输出口 image_1..image_N 的数量；超出已选张数的口会重复最后一张（未连线时无影响）
+# 独立输出口 image_1..image_N 的数量；图像N 固定对应第 N 张，不足 10 张时多余的口不输出
 SLOT_COUNT = 10
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff")
 MAX_LISTED_FILES = 800
@@ -187,7 +187,7 @@ class FengBatchImageLoader(io.ComfyNode):
                     "use_slots",
                     display_name="单张接口",
                     default=True,
-                    tooltip="开：图像1..图像10 各输出一张。关：图像1 输出图片列表（逐张、可混尺寸，只接列表型节点），图像2..图像10 不输出内容。",
+                    tooltip="开：图像N 只输出第 N 张，与加载顺序一一对应；图片不足 10 张时多余的口不输出。关：图像1 输出图片列表（逐张、可混尺寸，只接列表型节点），图像2..图像10 不输出内容。",
                 ),
             ],
             outputs=[
@@ -282,9 +282,10 @@ class FengBatchImageLoader(io.ComfyNode):
         image_list = [tensor[0] for tensor in slots_source]
 
         if use_slots:
-            # 单张接口：每个口一张；统一尺寸时用缩放后的图，保持原尺寸时用原图
-            last = len(slots_source) - 1
-            slots = [slots_source[min(index, last)] for index in range(SLOT_COUNT)]
+            # 单张接口：图像N 固定对应第 N 张，一一对应。
+            # 图片不足 10 张时，多出来的口输出 None（没有图可给），不重复最后一张。
+            slots = list(slots_source[:SLOT_COUNT])
+            slots += [None] * (SLOT_COUNT - len(slots))
         else:
             # 关掉时：图像1 输出图片列表（逐张、可混尺寸），其余单图口不输出内容
             slots = [image_list] + [None] * (SLOT_COUNT - 1)
