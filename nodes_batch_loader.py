@@ -11,8 +11,13 @@ input / output 目录下的文件，拼成一个 IMAGE 批次输出。顺序 = �
 关掉则等比缩放并居中裁切填满。两种都不会报错。
 """
 
+import asyncio
 import json
 import os
+import shutil
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
+from io import BytesIO
 
 import numpy as np
 import torch
@@ -28,11 +33,25 @@ SLOT_COUNT = 10
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff")
 MAX_LISTED_FILES = 800
 LIST_ROUTE = "/feng_images/list"
+PREVIEW_ROUTE = "/feng_images/preview"
+DELETE_ROUTE = "/feng_images/delete"
+DELETED_DIR_NAME = "delltemp"
+PREVIEW_MAX_SIDE = 768
+PREVIEW_CACHE_SIZE = 64
+# PIL 解码/缩放很吃 CPU：用独立线程池转码，别卡住 ComfyUI 的事件循环，也别占用默认线程池
+PREVIEW_WORKERS = 4
+_PREVIEW_EXECUTOR = ThreadPoolExecutor(max_workers=PREVIEW_WORKERS, thread_name_prefix="feng-preview")
+_PREVIEW_RESAMPLE = getattr(Image, "Resampling", Image).LANCZOS
 SOURCES = ("input", "output")
 
 
 def _normalize(value) -> str:
     return str(value or "").strip()
+
+
+def _normalize_subfolder(value) -> str:
+    """子目录参数统一成正斜杠、去掉首尾斜杠。"""
+    return _normalize(value).replace("\\", "/").strip("/")
 
 
 def parse_entries(raw) -> list[dict]:
@@ -82,6 +101,53 @@ def _resolve_file(name: str, subfolder: str, source: str) -> str:
 
 def _resolve_entry_path(entry: dict) -> str:
     return _resolve_file(entry["name"], entry["subfolder"], entry["type"])
+
+
+def _delltemp_dir() -> str:
+    """删除目录：与 input/output 同级，放在 ComfyUI 根目录下。"""
+    return os.path.abspath(os.path.join(os.path.dirname(_source_dir("input")), DELETED_DIR_NAME))
+
+
+def _deletion_path(source: str, path: str) -> str:
+    """保留 input/output 内的相对路径与文件名，拼出 delltemp 里的目标路径。"""
+    base = _source_dir(source)
+    absolute = os.path.abspath(path)
+    if os.path.commonpath([absolute, base]) != base:
+        raise ValueError("删除源路径越界")
+    relative = os.path.relpath(absolute, base)
+    root = _delltemp_dir()
+    destination = os.path.abspath(os.path.join(root, source, relative))
+    if os.path.commonpath([destination, root]) != root:
+        raise ValueError("删除目标路径越界")
+    return destination
+
+
+def _unique_destination(path: str) -> str:
+    """同名的旧删除文件已存在时加序号，不覆盖之前删掉的文件。"""
+    if not os.path.exists(path):
+        return path
+    stem, ext = os.path.splitext(path)
+    index = 1
+    while True:
+        candidate = f"{stem}_{index}{ext}"
+        if not os.path.exists(candidate):
+            return candidate
+        index += 1
+
+
+@lru_cache(maxsize=PREVIEW_CACHE_SIZE)
+def _render_webp(path: str, mtime_ns: int, file_size: int, max_side: int) -> bytes:
+    """按需生成 WEBP 预览；mtime/size 进缓存键，文件一变就重新生成。"""
+    with Image.open(path) as image:
+        # JPEG 在解码阶段就按 1/2、1/4、1/8 降采样，缩略图不用先读全尺寸
+        image.draft("RGB", (max_side, max_side))
+        image = ImageOps.exif_transpose(image)
+        has_alpha = image.mode in ("RGBA", "LA") or "transparency" in image.info
+        image = image.convert("RGBA" if has_alpha else "RGB")
+        image.thumbnail((max_side, max_side), _PREVIEW_RESAMPLE)
+        buffer = BytesIO()
+        image.save(buffer, format="WEBP", quality=80, method=4)
+        return buffer.getvalue()
 
 
 def _entry_label(entry: dict) -> str:
@@ -310,7 +376,7 @@ def _register_routes() -> None:
             return web.json_response({"error": "source 只能是 input 或 output"}, status=400)
 
         base = _source_dir(source)
-        subfolder = (request.query.get("subfolder") or "").replace("\\", "/").strip("/")
+        subfolder = _normalize_subfolder(request.query.get("subfolder"))
         target = os.path.abspath(os.path.join(base, subfolder)) if subfolder else base
 
         # 只允许在 input/output 目录内部，防止用 ../ 跳出去
@@ -330,14 +396,18 @@ def _register_routes() -> None:
             if os.path.splitext(name)[1].lower() not in IMAGE_EXTENSIONS:
                 continue
             try:
-                mtime = os.path.getmtime(full)
+                stat = os.stat(full)
+                mtime = stat.st_mtime
+                mtime_ns = stat.st_mtime_ns
             except OSError:
                 mtime = 0
+                mtime_ns = 0
             files.append({
                 "name": name,
                 "subfolder": subfolder,
                 "type": source,
                 "mtime": mtime,
+                "mtime_ns": mtime_ns,
             })
 
         files.sort(key=lambda item: item["mtime"], reverse=True)
@@ -347,6 +417,87 @@ def _register_routes() -> None:
             "folders": folders[:MAX_LISTED_FILES],
             "subfolder": subfolder,
             "source": source,
+        })
+
+    @instance.routes.get(PREVIEW_ROUTE)
+    async def feng_preview_image(request):
+        source = (request.query.get("source") or "input").lower()
+        if source not in SOURCES:
+            return web.json_response({"error": "source 只能是 input 或 output"}, status=400)
+
+        name = _normalize(request.query.get("name"))
+        if not name:
+            return web.json_response({"error": "缺少 name"}, status=400)
+        if os.path.splitext(name)[1].lower() not in IMAGE_EXTENSIONS:
+            return web.json_response({"error": "不是图片文件"}, status=400)
+
+        try:
+            max_side = int(request.query.get("max") or PREVIEW_MAX_SIDE)
+        except (TypeError, ValueError):
+            return web.json_response({"error": "max 必须是整数"}, status=400)
+        max_side = max(64, min(1600, max_side))
+
+        try:
+            path = _resolve_file(name, _normalize_subfolder(request.query.get("subfolder")), source)
+            stat = os.stat(path)
+        except (ValueError, OSError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        try:
+            loop = asyncio.get_running_loop()
+            data = await loop.run_in_executor(
+                _PREVIEW_EXECUTOR, _render_webp, path, stat.st_mtime_ns, stat.st_size, max_side
+            )
+        except Exception as exc:
+            return web.json_response({"error": f"生成 WEBP 预览失败：{exc}"}, status=400)
+
+        return web.Response(
+            body=data,
+            content_type="image/webp",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    @instance.routes.post(DELETE_ROUTE)
+    async def feng_delete_image(request):
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"error": "请求体必须是 JSON"}, status=400)
+        if not isinstance(payload, dict):
+            return web.json_response({"error": "请求体必须是 JSON 对象"}, status=400)
+
+        source = _normalize(payload.get("type")).lower()
+        if source not in SOURCES:
+            return web.json_response({"error": "type 只能是 input 或 output"}, status=400)
+
+        name = _normalize(payload.get("name"))
+        if not name:
+            return web.json_response({"error": "缺少 name"}, status=400)
+        if os.path.splitext(name)[1].lower() not in IMAGE_EXTENSIONS:
+            return web.json_response({"error": "只能删除图片文件"}, status=400)
+
+        subfolder = _normalize_subfolder(payload.get("subfolder"))
+        try:
+            path = _resolve_file(name, subfolder, source)
+            destination = _deletion_path(source, path)
+        except (ValueError, OSError) as exc:
+            return web.json_response({"error": str(exc)}, status=400)
+
+        try:
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            destination = _unique_destination(destination)
+            shutil.move(path, destination)
+        except OSError as exc:
+            return web.json_response({"error": f"移动失败：{exc}"}, status=400)
+
+        root = os.path.dirname(_delltemp_dir())
+        moved_to = os.path.relpath(destination, root).replace(os.sep, "/")
+        return web.json_response({
+            "deleted": True,
+            "name": name,
+            "subfolder": subfolder,
+            "type": source,
+            "moved_to": moved_to,
         })
 
 

@@ -1,10 +1,11 @@
 // 「批量图片加载」节点的前端面板。
 //
 // 图片列表存在节点隐藏控件 images 里（JSON 数组，顺序即输出顺序）。
-// 上传复用 ComfyUI 自带的 POST /upload/image，预览用 GET /view，不额外开后端路由。
+// 上传复用 ComfyUI 自带的 POST /upload/image；缩略图和放大预览走 /feng_images/preview（WEBP 缩放），
+// 删除走 /feng_images/delete（移到 delltemp，可找回）。
 //
-// 文件位于 web/js/，浏览器 URL 是 /extensions/Feng/js/batch_loader.js，
-// 所以相对路径要用三级 ../../../scripts/。
+// 文件位于 web/js/，浏览器 URL 是 /extensions/<插件目录名>/js/batch_loader.js，
+// 所以相对路径要用三级 ../../../scripts/（与目录名无关，只和层级有关）。
 
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
@@ -13,6 +14,8 @@ const NODE_NAME = "FengBatchImageLoader";
 const STATE_WIDGET = "images";
 const UPLOAD_URL = "/upload/image";
 const VIEW_URL = "/view";
+const PREVIEW_URL = "/feng_images/preview";
+const DELETE_URL = "/feng_images/delete";
 
 function withBase(path) {
   return typeof api.apiURL === "function" ? api.apiURL(path) : path;
@@ -96,8 +99,11 @@ function makeButton(label, extra) {
 }
 
 // 从 ComfyUI 的 input / output 目录里挑已有图片（逐层浏览子目录，避免一次列太多导致卡顿）。
+// 缩略图和放大预览都走 /feng_images/preview（WEBP，服务端按需缩放）；
+// 右上角「删除」打开后每张图出现 ✕，点击把文件移到 ComfyUI 根目录的 delltemp。
 function openImagePicker(onPicked, options = {}) {
   const single = options.single === true;
+  const onDeleted = typeof options.onDeleted === "function" ? options.onDeleted : null;
   const overlay = document.createElement("div");
   overlay.style.cssText =
     "position:fixed;inset:0;z-index:10002;background:rgba(0,0,0,0.65);" +
@@ -116,9 +122,12 @@ function openImagePicker(onPicked, options = {}) {
   const title = document.createElement("div");
   title.textContent = single ? "选择一张图片替换" : "从目录选择图片";
   title.style.cssText = "font-size:14px;font-weight:600;margin-right:auto;";
+  const deleteButton = makeButton("🗑 删除");
+  deleteButton.title = "打开删除模式：点图片右上角的 ✕，文件会移到 delltemp（可找回）";
+  deleteButton.setAttribute("aria-pressed", "false");
   const inputButton = makeButton("input");
   const outputButton = makeButton("output");
-  head.append(title, inputButton, outputButton);
+  head.append(title, deleteButton, inputButton, outputButton);
 
   const pathRow = document.createElement("div");
   pathRow.style.cssText = "display:flex;gap:6px;align-items:center;";
@@ -152,17 +161,43 @@ function openImagePicker(onPicked, options = {}) {
   }
   foot.append(counter, cancel, confirm);
 
+  // 放大预览单独挂在 body 上，避免被面板的 overflow 裁掉
+  const preview = document.createElement("div");
+  preview.style.cssText =
+    "position:fixed;z-index:10004;display:none;pointer-events:none;padding:4px;" +
+    "background:#141414;border:1px solid #4a4a4a;border-radius:6px;" +
+    "box-shadow:0 12px 34px rgba(0,0,0,0.65);";
+  const previewHint = document.createElement("div");
+  previewHint.style.cssText = "color:#9a9a9a;font-size:12px;padding:30px 40px;white-space:nowrap;";
+  previewHint.textContent = "加载中…";
+  const previewImage = document.createElement("img");
+  previewImage.alt = "预览";
+  previewImage.style.cssText =
+    "display:none;max-width:min(520px,58vw);max-height:72vh;border-radius:4px;";
+  preview.append(previewHint, previewImage);
+
   panel.append(head, pathRow, folderRow, status, area, foot);
   overlay.append(panel);
-  document.body.append(overlay);
+  document.body.append(overlay, preview);
 
   const chosen = new Map();
   let source = "input";
   let subfolder = "";
+  let deleteMode = false;
+  let fileCount = 0;
+  let folderCount = 0;
+  let previewAnchor = null;
+  let previewTimer = null;
+  let loading = false;
+  let loadToken = 0;
+  const deleteButtons = [];
 
   function close() {
+    hidePreview();
     document.removeEventListener("keydown", onKey);
+    window.removeEventListener("resize", hidePreview);
     overlay.remove();
+    preview.remove();
   }
 
   function onKey(event) {
@@ -173,26 +208,177 @@ function openImagePicker(onPicked, options = {}) {
 
   function syncCounter() {
     if (single) {
-      counter.textContent = chosen.size ? `已选：${Array.from(chosen.values())[0].name}` : "点一张图片即可替换";
+      counter.textContent = chosen.size ? "已选：" + Array.from(chosen.values())[0].name : "点一张图片即可替换";
       confirm.disabled = chosen.size === 0;
       return;
     }
-    counter.textContent = `已选 ${chosen.size} 张`;
+    counter.textContent = "已选 " + chosen.size + " 张";
     confirm.disabled = chosen.size === 0;
   }
 
   function syncPath() {
-    pathText.textContent = subfolder ? `${source} / ${subfolder}` : `${source} /`;
+    pathText.textContent = subfolder ? source + " / " + subfolder : source + " /";
     upButton.disabled = !subfolder;
     upButton.style.opacity = subfolder ? "1" : "0.5";
   }
 
+  function syncCount() {
+    countText.textContent = folderCount + " 个子目录 · " + fileCount + " 张图";
+  }
+
+  function idleStatus() {
+    if (deleteMode) {
+      return "删除模式：点图片右上角的 ✕ 移到 delltemp（保留原目录和文件名，可找回）";
+    }
+    return single ? "点一张图片即可替换" : "点缩略图选中（可多选），选完点「添加所选」";
+  }
+
+  // 缩略图用 320px、放大预览用 768px 的 WEBP；v 用 mtime，文件换了浏览器缓存自动失效
+  function webpUrl(entry, maxSide) {
+    const params = new URLSearchParams({
+      source: entry.type === "output" ? "output" : "input",
+      subfolder: entry.subfolder || "",
+      name: entry.name,
+      max: String(maxSide),
+    });
+    if (entry.mtime) {
+      params.set("v", String(entry.mtime));
+    }
+    return withBase(PREVIEW_URL + "?" + params.toString());
+  }
+
+  function placePreview(rect) {
+    const gap = 8;
+    preview.style.visibility = "hidden";
+    preview.style.display = "block";
+    const box = preview.getBoundingClientRect();
+    let left = rect.right + gap;
+    if (left + box.width > window.innerWidth - gap) {
+      left = rect.left - box.width - gap;
+    }
+    left = Math.max(gap, Math.min(left, window.innerWidth - box.width - gap));
+    let top = rect.top + (rect.height - box.height) / 2;
+    top = Math.max(gap, Math.min(top, window.innerHeight - box.height - gap));
+    preview.style.left = Math.round(left) + "px";
+    preview.style.top = Math.round(top) + "px";
+    preview.style.visibility = "visible";
+  }
+
+  function hidePreview() {
+    clearTimeout(previewTimer);
+    previewTimer = null;
+    previewAnchor = null;
+    preview.style.display = "none";
+    previewImage.removeAttribute("src");
+  }
+
+  function showPreview(entry, rect) {
+    clearTimeout(previewTimer);
+    previewAnchor = rect;
+    // 悬停 120ms 再加载，快速扫过缩略图时不会把整屏都请求一遍
+    previewTimer = setTimeout(() => {
+      const url = webpUrl(entry, 768);
+      previewHint.textContent = "加载中…";
+      previewHint.style.display = "block";
+      previewImage.style.display = "none";
+      preview.style.display = "block";
+      placePreview(rect);
+      if (previewImage.getAttribute("src") === url && previewImage.complete && previewImage.naturalWidth) {
+        previewHint.style.display = "none";
+        previewImage.style.display = "block";
+        placePreview(rect);
+        return;
+      }
+      previewImage.src = url;
+    }, 120);
+  }
+
+  previewImage.addEventListener("load", () => {
+    previewHint.style.display = "none";
+    previewImage.style.display = "block";
+    if (previewAnchor) {
+      placePreview(previewAnchor);
+    }
+  });
+  previewImage.addEventListener("error", () => {
+    previewImage.style.display = "none";
+    previewHint.style.display = "block";
+    previewHint.textContent = "预览失败";
+    if (previewAnchor) {
+      placePreview(previewAnchor);
+    }
+  });
+
+  function setDeleteMode(next) {
+    deleteMode = next;
+    deleteButton.setAttribute("aria-pressed", String(deleteMode));
+    deleteButton.textContent = deleteMode ? "☑ 删除中" : "🗑 删除";
+    deleteButton.title = deleteMode
+      ? "关闭删除模式；已删文件在 delltemp，可手动找回"
+      : "打开删除模式：点图片右上角的 ✕，文件会移到 delltemp（可找回）";
+    deleteButton.style.background = deleteMode ? "#7a2b2b" : "#2b2b2b";
+    deleteButton.style.borderColor = deleteMode ? "#c05050" : "#4a4a4a";
+    for (const button of deleteButtons) {
+      button.style.display = deleteMode ? "block" : "none";
+    }
+    hidePreview();
+    if (!loading && fileCount > 0) {
+      status.textContent = idleStatus();
+    }
+  }
+
+  async function deleteEntry(entry, tile, button) {
+    if (button.dataset.busy === "1") {
+      return;
+    }
+    button.dataset.busy = "1";
+    button.textContent = "…";
+    hidePreview();
+    try {
+      const response = await api.fetchApi(DELETE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: entry.name,
+          subfolder: entry.subfolder || "",
+          type: entry.type,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || "HTTP " + response.status);
+      }
+      const key = entry.type + ":" + (entry.subfolder || "") + "/" + entry.name;
+      chosen.delete(key);
+      tile.remove();
+      const position = deleteButtons.indexOf(button);
+      if (position >= 0) {
+        deleteButtons.splice(position, 1);
+      }
+      fileCount = Math.max(0, fileCount - 1);
+      syncCount();
+      syncCounter();
+      status.textContent = "已删除：" + entry.name + " → " + (data.moved_to || "delltemp");
+      if (onDeleted) {
+        onDeleted(entry);
+      }
+    } catch (error) {
+      button.dataset.busy = "";
+      button.textContent = "✕";
+      status.textContent = "删除失败：" + error.message;
+    }
+  }
+
   async function load(nextSource, nextSubfolder) {
+    const token = ++loadToken;
     source = nextSource;
     subfolder = nextSubfolder || "";
     inputButton.style.background = source === "input" ? "#3a6ea5" : "#2b2b2b";
     outputButton.style.background = source === "output" ? "#3a6ea5" : "#2b2b2b";
     syncPath();
+    hidePreview();
+    deleteButtons.length = 0;
+    loading = true;
     status.textContent = "读取中...";
     countText.textContent = "";
     area.textContent = "";
@@ -200,31 +386,38 @@ function openImagePicker(onPicked, options = {}) {
 
     try {
       const query = new URLSearchParams({ source, subfolder });
-      const response = await api.fetchApi(`/feng_images/list?${query.toString()}`);
+      const response = await api.fetchApi("/feng_images/list?" + query.toString());
       const data = await response.json();
+      // 快速连点目录时，旧请求回来不要再覆盖新目录
+      if (token !== loadToken) {
+        return;
+      }
       if (!response.ok) {
-        throw new Error(data.error || `HTTP ${response.status}`);
+        throw new Error(data.error || "HTTP " + response.status);
       }
 
       const folders = data.folders || [];
       const files = data.files || [];
-      countText.textContent = `${folders.length} 个子目录 · ${files.length} 张图`;
+      folderCount = folders.length;
+      fileCount = files.length;
+      syncCount();
 
       for (const folder of folders) {
-        const chip = makeButton(`📁 ${folder}`);
+        const chip = makeButton("📁 " + folder);
         chip.style.cssText += "font-size:11px;padding:1px 6px;";
-        chip.title = `进入 ${folder}`;
+        chip.title = "进入 " + folder;
         chip.addEventListener("click", () =>
-          load(source, subfolder ? `${subfolder}/${folder}` : folder)
+          load(source, subfolder ? subfolder + "/" + folder : folder)
         );
         folderRow.append(chip);
       }
 
       status.textContent = files.length
-        ? "点缩略图选中（可多选），选完点「添加所选」"
+        ? idleStatus()
         : folders.length
           ? "这个目录里没有图片，点上面的子目录进去看看"
           : "这个目录里没有图片";
+      loading = false;
 
       const grid = document.createElement("div");
       grid.style.cssText = "display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;";
@@ -233,19 +426,60 @@ function openImagePicker(onPicked, options = {}) {
           name: file.name,
           subfolder: file.subfolder || "",
           type: file.type || source,
+          mtime: file.mtime_ns || file.mtime || 0,
         };
-        const key = `${entry.type}:${entry.subfolder}/${entry.name}`;
+        const key = entry.type + ":" + entry.subfolder + "/" + entry.name;
         const tile = document.createElement("div");
         tile.style.cssText =
           "position:relative;border:2px solid " + (chosen.has(key) ? "#4f9bff" : "#3a3a3a") +
           ";border-radius:4px;overflow:hidden;background:#232323;cursor:pointer;";
         tile.title = key;
 
+        const media = document.createElement("div");
+        media.style.cssText =
+          "position:relative;width:100%;aspect-ratio:1/1;overflow:hidden;background:#1c1c1c;";
+
         const image = document.createElement("img");
         image.loading = "lazy";
-        image.src = previewUrl(entry);
+        image.src = webpUrl(entry, 320);
+        image.alt = entry.name;
         image.style.cssText =
-          "display:block;width:100%;aspect-ratio:1/1;object-fit:cover;background:#1c1c1c;";
+          "display:block;width:100%;height:100%;object-fit:cover;background:#1c1c1c;";
+        image.addEventListener("error", () => {
+          // 个别图片转换 WEBP 失败时退回原图，不影响挑选
+          if (image.dataset.fallback !== "1") {
+            image.dataset.fallback = "1";
+            image.src = previewUrl(entry);
+          }
+        });
+
+        const zoom = document.createElement("span");
+        zoom.textContent = "🔍";
+        zoom.title = "放大预览（WEBP）";
+        zoom.style.cssText =
+          "position:absolute;right:3px;bottom:3px;cursor:zoom-in;border-radius:3px;" +
+          "background:rgba(0,0,0,0.7);color:#ddd;font-size:14px;line-height:20px;padding:0 4px;";
+        zoom.addEventListener("mouseenter", (event) => {
+          event.stopPropagation();
+          showPreview(entry, zoom.getBoundingClientRect());
+        });
+        zoom.addEventListener("mouseleave", hidePreview);
+        zoom.addEventListener("click", (event) => event.stopPropagation());
+
+        const remove = document.createElement("span");
+        remove.textContent = "✕";
+        remove.title = "删除这张图（移到 delltemp，可找回）";
+        remove.style.cssText =
+          "position:absolute;top:3px;right:3px;cursor:pointer;border-radius:3px;" +
+          "background:rgba(196,48,48,0.92);color:#fff;font-size:12px;line-height:16px;" +
+          "padding:0 4px;display:" + (deleteMode ? "block" : "none") + ";";
+        remove.addEventListener("click", (event) => {
+          event.stopPropagation();
+          deleteEntry(entry, tile, remove);
+        });
+        deleteButtons.push(remove);
+
+        media.append(image, zoom, remove);
 
         const caption = document.createElement("div");
         caption.textContent = entry.name;
@@ -253,8 +487,11 @@ function openImagePicker(onPicked, options = {}) {
           "padding:2px 4px;font-size:10px;line-height:13px;height:13px;overflow:hidden;" +
           "white-space:nowrap;text-overflow:ellipsis;color:#cfcfcf;";
 
-        tile.append(image, caption);
+        tile.append(media, caption);
         tile.addEventListener("click", () => {
+          if (deleteMode) {
+            return;
+          }
           if (single) {
             // 单选模式：点一下就定，直接关窗回调
             chosen.clear();
@@ -278,6 +515,10 @@ function openImagePicker(onPicked, options = {}) {
       }
       area.append(grid);
     } catch (error) {
+      if (token !== loadToken) {
+        return;
+      }
+      loading = false;
       status.textContent = "读取失败：" + error.message;
     }
   }
@@ -293,6 +534,7 @@ function openImagePicker(onPicked, options = {}) {
     load(source, parts.join("/"));
   });
   cancel.addEventListener("click", close);
+  deleteButton.addEventListener("click", () => setDeleteMode(!deleteMode));
   confirm.addEventListener("click", () => {
     const picked = Array.from(chosen.values());
     close();
@@ -306,6 +548,8 @@ function openImagePicker(onPicked, options = {}) {
     }
   });
   document.addEventListener("keydown", onKey);
+  window.addEventListener("resize", hidePreview);
+  area.addEventListener("scroll", hidePreview, { passive: true });
   syncCounter();
   syncPath();
   load("input", "");
@@ -556,6 +800,30 @@ function setupPanel(node) {
     writeList(node, list);
   }
 
+  // 选择窗口里删掉的文件如果已在列表里，同步移除，避免节点还引用不存在的文件
+  function entryKey(entry) {
+    if (!entry) {
+      return "";
+    }
+    const type = entry.type === "output" ? "output" : "input";
+    return type + ":" + (entry.subfolder || "") + "/" + entry.name;
+  }
+
+  function forgetDeleted(entry) {
+    const key = entryKey(entry);
+    if (!key) {
+      return;
+    }
+    const next = list.filter((item) => entryKey(item) !== key);
+    if (next.length === list.length) {
+      return;
+    }
+    list = next;
+    persist();
+    renderAll();
+    setStatus("已从列表移除：" + entry.name + "（文件在 delltemp）", false);
+  }
+
   function selectedCount() {
     return list.filter((entry) => entry.selected).length;
   }
@@ -641,23 +909,33 @@ function setupPanel(node) {
       const remove = makeTool("✕", "移除");
       replaceTool.addEventListener("click", (event) => {
         event.stopPropagation();
-        const target = index;
+        const targetEntry = list[index];
+        // 快照一份「原图前面的条目」，删除后靠对象身份数出还活着的有几个
+        const before = list.slice(0, index);
         openImagePicker((picked) => {
           if (!picked.length) {
             return;
           }
           const entry = picked[0];
-          list[target] = {
+          const next = {
             name: entry.name,
             subfolder: entry.subfolder || "",
             type: entry.type === "output" ? "output" : "input",
             selected: true,
             mask: "",
           };
+          // 选择窗口里可能删过图：先按对象身份找原位，找不到再插回原来的相对位置
+          let target = targetEntry ? list.indexOf(targetEntry) : -1;
+          if (target < 0) {
+            target = before.filter((item) => list.includes(item)).length;
+            list.splice(target, 0, next);
+          } else {
+            list[target] = next;
+          }
           persist();
           renderAll();
           setStatus(`已替换第 ${target + 1} 张：${entry.name}`, false);
-        }, { single: true });
+        }, { single: true, onDeleted: forgetDeleted });
       });
       tools.append(replaceTool, moveLeft, moveRight, remove);
 
@@ -842,12 +1120,18 @@ function setupPanel(node) {
   pickerButton.addEventListener("click", () => {
     openImagePicker((picked) => {
       list = list.concat(
-        picked.map((entry) => ({ ...entry, selected: true, mask: "" }))
+        picked.map((entry) => ({
+          name: entry.name,
+          subfolder: entry.subfolder || "",
+          type: entry.type === "output" ? "output" : "input",
+          selected: true,
+          mask: "",
+        }))
       );
       persist();
       renderAll();
       setStatus(`已添加 ${picked.length} 张（来自 ${picked[0]?.type || "input"}）`, false);
-    });
+    }, { onDeleted: forgetDeleted });
   });
   fileInput.addEventListener("change", () => {
     if (fileInput.files && fileInput.files.length) {
