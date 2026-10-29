@@ -2,7 +2,7 @@
 //
 // 图片列表存在节点隐藏控件 images 里（JSON 数组，顺序即输出顺序）。
 // 上传复用 ComfyUI 自带的 POST /upload/image；缩略图和放大预览走 /feng_images/preview（WEBP 缩放），
-// 删除走 /feng_images/delete（移到 delltemp，可找回）。
+// 右下角 ↗ 走 /view 在新窗口打开原图；删除走 /feng_images/delete（移到 delltemp，可找回）。
 //
 // 文件位于 web/js/，浏览器 URL 是 /extensions/<插件目录名>/js/batch_loader.js，
 // 所以相对路径要用三级 ../../../scripts/（与目录名无关，只和层级有关）。
@@ -19,6 +19,14 @@ const DELETE_URL = "/feng_images/delete";
 
 function withBase(path) {
   return typeof api.apiURL === "function" ? api.apiURL(path) : path;
+}
+
+// 上传默认落在 input/Feng/<yyyyMM>/，对应 input/Feng/%date:yyyyMM%/，
+// 例如 2026 年 10 月 → Feng/202610（月份补两位，跨月自动换目录）。
+function defaultUploadSubfolder(now = new Date()) {
+  const year = String(now.getFullYear());
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  return "Feng/" + year + month;
 }
 
 function previewUrl(entry) {
@@ -143,7 +151,15 @@ function openImagePicker(onPicked, options = {}) {
   folderRow.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;max-height:96px;overflow:auto;";
 
   const status = document.createElement("div");
-  status.style.cssText = "color:#8a8a8a;font-size:11px;min-height:14px;text-align:center;";
+  // 固定单行：长路径不换行、不撑高面板，悬停 title 看全文
+  status.style.cssText =
+    "color:#8a8a8a;font-size:11px;line-height:14px;height:14px;text-align:center;" +
+    "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;";
+
+  function setPickerStatus(text) {
+    status.textContent = text;
+    status.title = text;
+  }
 
   const area = document.createElement("div");
   area.style.cssText = "flex:1;min-height:0;overflow:auto;";
@@ -323,7 +339,7 @@ function openImagePicker(onPicked, options = {}) {
     }
     hidePreview();
     if (!loading && fileCount > 0) {
-      status.textContent = idleStatus();
+      setPickerStatus(idleStatus());
     }
   }
 
@@ -358,14 +374,14 @@ function openImagePicker(onPicked, options = {}) {
       fileCount = Math.max(0, fileCount - 1);
       syncCount();
       syncCounter();
-      status.textContent = "已删除：" + entry.name + " → " + (data.moved_to || "delltemp");
+      setPickerStatus("已删除：" + entry.name + " → " + (data.moved_to || "delltemp"));
       if (onDeleted) {
         onDeleted(entry);
       }
     } catch (error) {
       button.dataset.busy = "";
       button.textContent = "✕";
-      status.textContent = "删除失败：" + error.message;
+      setPickerStatus("删除失败：" + error.message);
     }
   }
 
@@ -379,7 +395,7 @@ function openImagePicker(onPicked, options = {}) {
     hidePreview();
     deleteButtons.length = 0;
     loading = true;
-    status.textContent = "读取中...";
+    setPickerStatus("读取中...");
     countText.textContent = "";
     area.textContent = "";
     folderRow.textContent = "";
@@ -412,11 +428,13 @@ function openImagePicker(onPicked, options = {}) {
         folderRow.append(chip);
       }
 
-      status.textContent = files.length
-        ? idleStatus()
-        : folders.length
-          ? "这个目录里没有图片，点上面的子目录进去看看"
-          : "这个目录里没有图片";
+      setPickerStatus(
+        files.length
+          ? idleStatus()
+          : folders.length
+            ? "这个目录里没有图片，点上面的子目录进去看看"
+            : "这个目录里没有图片"
+      );
       loading = false;
 
       const grid = document.createElement("div");
@@ -479,7 +497,23 @@ function openImagePicker(onPicked, options = {}) {
         });
         deleteButtons.push(remove);
 
-        media.append(image, zoom, remove);
+        const openOriginal = document.createElement("a");
+        openOriginal.textContent = "↗";
+        openOriginal.title = "在新窗口打开原图";
+        openOriginal.setAttribute("aria-label", "在新窗口打开原图");
+        openOriginal.href = previewUrl(entry);
+        openOriginal.target = "_blank";
+        openOriginal.rel = "noopener noreferrer";
+        openOriginal.style.cssText =
+          "position:absolute;right:30px;bottom:3px;cursor:pointer;border-radius:3px;" +
+          "background:rgba(0,0,0,0.7);color:#ddd;font-size:14px;line-height:20px;padding:0 4px;" +
+          "text-decoration:none;";
+        openOriginal.addEventListener("click", (event) => {
+          event.stopPropagation();
+          hidePreview();
+        });
+
+        media.append(image, zoom, openOriginal, remove);
 
         const caption = document.createElement("div");
         caption.textContent = entry.name;
@@ -519,7 +553,7 @@ function openImagePicker(onPicked, options = {}) {
         return;
       }
       loading = false;
-      status.textContent = "读取失败：" + error.message;
+      setPickerStatus("读取失败：" + error.message);
     }
   }
 
@@ -1083,6 +1117,7 @@ function setupPanel(node) {
     }
     busy = true;
     addButton.disabled = true;
+    const targetSubfolder = defaultUploadSubfolder();
     let done = 0;
     try {
       for (const file of images) {
@@ -1090,6 +1125,7 @@ function setupPanel(node) {
         const form = new FormData();
         form.append("image", file, file.name);
         form.append("type", "input");
+        form.append("subfolder", targetSubfolder);
         const response = await api.fetchApi(UPLOAD_URL, { method: "POST", body: form });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
