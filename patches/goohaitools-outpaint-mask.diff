@@ -1,0 +1,17 @@
+diff --git "a/nodes/\345\244\226\350\241\245\347\224\273\346\235\277\357\274\210\345\217\257\350\247\206\345\214\226\357\274\211.py" "b/nodes/\345\244\226\350\241\245\347\224\273\346\235\277\357\274\210\345\217\257\350\247\206\345\214\226\357\274\211.py"
+index a1c79e7..94000b3 100644
+--- "a/nodes/\345\244\226\350\241\245\347\224\273\346\235\277\357\274\210\345\217\257\350\247\206\345\214\226\357\274\211.py"
++++ "b/nodes/\345\244\226\350\241\245\347\224\273\346\235\277\357\274\210\345\217\257\350\247\206\345\214\226\357\274\211.py"
+@@ -129,6 +129,12 @@ class 孤海外补画板可视化:
+             if source_mask.shape[-2:] != (height, width):
+                 source_mask = F.interpolate(source_mask.unsqueeze(1), size=(height, width),
+                                             mode="bilinear", align_corners=False).squeeze(1)
++            # Feng:mask-first-only
++            # 单张遮罩只作用于第一张；批次其余图补 0，避免整批被第一张遮罩涂掉。
++            if source_mask.shape[0] == 1 and batch > 1:
++                source_mask = torch.cat(
++                    (source_mask, source_mask.new_zeros((batch - 1, *source_mask.shape[1:]))),
++                    dim=0)
+             indices = torch.arange(batch, device=图像.device).clamp(max=source_mask.shape[0] - 1)
+             source_mask = source_mask[indices]
+             image[:, top:top + height, left:left + width] = torch.lerp(

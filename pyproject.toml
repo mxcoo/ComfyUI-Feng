@@ -1,7 +1,7 @@
 [project]
 name = "feng"
-description = "ComfyUI 自定义节点：多功能提示词预设 + 批量图片加载"
-version = "0.1.0"
+description = "ComfyUI 自定义节点：多功能提示词预设 + 批量图片加载 + 孤海外补画板联动"
+version = "0.2.0"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = []
