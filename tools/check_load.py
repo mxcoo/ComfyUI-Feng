@@ -24,7 +24,12 @@ PLUGIN_NAME = os.path.basename(PLUGIN_DIR)
 def main() -> int:
     sys.path.insert(0, COMFY_ROOT)
 
-    from comfy_api.latest import ComfyExtension
+    try:
+        from comfy_api.latest import ComfyExtension
+    except ModuleNotFoundError:
+        # 没装 ComfyUI 的机器（CI、沙箱）跑不了这一项，直接说明而不是报失败。
+        print("跳过：当前环境没有 ComfyUI（找不到 comfy_api）。这项要在装了 ComfyUI 的机器上跑。")
+        return 0
 
     # 对应 nodes.py:2266-2276：按包加载 __init__.py
     spec = importlib.util.spec_from_file_location(

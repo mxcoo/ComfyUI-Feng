@@ -52,6 +52,9 @@ cd H:\~~~aki-v3.2\ComfyUI\custom_nodes\Feng
 | `presets/presets.json` | 出厂数据（**只读**，由 tools 脚本生成） | 不手改 |
 | `presets/user_presets.json` | 界面里新增的分类与预设（**可写**） | 不让出厂数据写进来 |
 | `web/js/*.js` | 前端面板 | 不做业务计算（拼词在后端） |
+| `ausboss/nodes/*.py` | 从上游 AusBoss 搬来的 54 个节点（V1 写法，原样保留） | 不改业务逻辑；要改文案走 `ausboss/zh/nodes.json` |
+| `ausboss/zh/` | 汉化层：数据 + `localize.py`（只改展示字段） | 不改下拉取值（它进 prompt JSON 与路由入参） |
+| `web/ausboss/` | 移植包的前端（含 54 篇帮助文档） | 不进 `web/js/` 的逻辑；import 深度比上游多一层 |
 | `tools/*.py` | 自检与数据导入脚本 | 运行时不参与 |
 
 ## 4. 数据模型（改之前先读懂）
@@ -150,3 +153,10 @@ cd H:\~~~aki-v3.2\ComfyUI\custom_nodes\Feng
 6. `folder_paths.get_full_path("input", name)` 对 input 目录**不可用**（input 不是按模型目录注册的）。
    读 input/output 图片要用 `get_input_directory()` / `get_output_directory()` 自己拼路径，再用
    `os.path.commonpath` 校验没有越界；参考 `nodes_batch_loader._resolve_file`。
+7. **下拉框的取值不能翻成中文**。`ausboss/nodes/*.py` 里的选项常量同时是 prompt JSON 的存值和
+   `/ausboss/*` 路由的入参（前后端各有几十处 `===` 比对，例如 `input folder` / `local path` /
+   `one per run`）。要汉化只翻 `tooltip` 与 `label`（`ausboss/zh/localize.py` 就是这么做的），
+   取值保持英文，老工作流才不会全红。
+8. 上游 `js/` 里的字符串被拆成多行相邻字面量，靠行号 + 字符偏移回填译文时，**偏移必须来自同一次
+   提取**：先提取、再翻译、再回填，中途改过源码就要重新提取，否则会写出半截英文（本项目
+   `tools/_ausboss_js_zh.mjs` 与 `tools/_ausboss_py_zh.py` 都带了「坐标对不上就跳过」的兜底）。

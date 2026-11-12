@@ -1,0 +1,1026 @@
+// Image Compare A/B: the Erase mode's canvas, brush and tools.
+//
+// One picture lies on top of the other and the brush rubs the top one away.
+// The node keeps the strokes (compare_erase.mjs), and this file draws them:
+// a mask canvas holds what has been rubbed away, and the view shows the
+// picture underneath with the top picture, less that mask, over it. Save
+// sends the strokes to the server, which builds the mix at full size.
+import { compactAction } from "./panel_controls.mjs";
+import { api } from "../../../../scripts/api.js";
+import { BRAND, notifyAusbossChange, showToast } from "./index.mjs";
+import { brushAdjusts, brushFlips, brushKey, brushWords, toolKey } from "./brush.mjs";
+import { keepKeyInField } from "./canvas_passthrough.mjs";
+import { makeScrubInput } from "./scrub_input.mjs";
+import { makeSlideSwitch } from "./slide_switch.mjs";
+import { extendStroke } from "./touch_math.mjs";
+import {
+  CHECKER,
+  ERASE_OUTSIDE,
+  ERASE_SIZE,
+  ERASE_SOFT_DEFAULT,
+  brushCore,
+  brushSigma,
+  clampSize,
+  clampSoft,
+  defaultBrushSize,
+  fitRect,
+  makeStroke,
+  moveAdjust,
+  nameHint,
+  normalizeTop,
+  previewScale,
+  readPaint,
+  saveRequest,
+  savedMessage,
+  startAdjust,
+  steppedSize,
+  steppedSoft,
+  strokeFits,
+  typedName,
+} from "./compare_erase.mjs";
+
+// The heights of the tool row above the picture and the save row under it.
+// On a narrow node either row wraps onto a second line instead of widening
+// the node, and the picture gives up the room.
+export const ERASE_BAR_HEIGHT = 24;
+export const SAVE_ROW_HEIGHT = 28;
+
+// Saved with the workflow: the paint, the brush once it was set by hand,
+// which picture is on top, and whether Save writes the layers too.
+const PAINT_PROPERTY = "ausboss_compare_paint";
+const SIZE_PROPERTY = "ausboss_compare_brush";
+const SOFT_PROPERTY = "ausboss_compare_soft";
+const TOP_PROPERTY = "ausboss_compare_top";
+const LAYERS_PROPERTY = "ausboss_compare_layers";
+const NAME_PROPERTY = "ausboss_compare_name";
+// A floppy disk, drawn here: the corner cut off, the label, the shutter.
+const SAVE_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">'
+  + '<path d="M2.5 2.5h8.4l2.6 2.6v8.4h-11z"/><path d="M5.2 2.7v3.3h4.6V2.7"/><path d="M4.9 13.3V9.6h6.2v3.7"/></svg>';
+// Two sheets, one over the other, drawn here.
+const COPY_ICON = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">'
+  + '<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>';
+const SAVE_ROUTE = "/ausboss/compare/save";
+const ALIGN_ROUTE = "/ausboss/compare/align";
+const UNDO_KEPT = 60;
+// The view is drawn at the size it has on screen, up to this many pixels.
+const VIEW_SIDE = 2600;
+// The brush shown around the pointer: the pack's teal where it rubs away,
+// coral where it paints back, as on Mask by Touch.
+const RUB_TINT = BRAND;
+const RUB_RING = "#78fff0";
+const BACK_TINT = "#ff9678";
+const BACK_RING = "#ffb49c";
+// How strongly the brush's shape tints the picture under the pointer: light
+// while aiming, stronger while the brush itself is being set.
+const TINT_AIMING = 0.4;
+const TINT_SETTING = 0.62;
+
+// A blurred stroke in one call where the browser can filter a canvas; a
+// shadow whose own shape is drawn off the canvas where it cannot (Safari).
+const CAN_FILTER = typeof CanvasRenderingContext2D !== "undefined" && "filter" in CanvasRenderingContext2D.prototype;
+
+export const ERASE_CSS = `
+.ausboss-compare-erasebar{display:none;box-sizing:border-box;flex-wrap:wrap;align-items:center;gap:4px 6px;flex:none;min-height:${ERASE_BAR_HEIGHT}px;}
+.ausboss-compare-root.is-erasing .ausboss-compare-erasebar{display:flex;}
+.ausboss-compare-brush-swatch{box-sizing:border-box;flex:none;width:24px;height:24px;border-radius:4px;background:#0b1113;border:1px solid rgba(0,180,170,.3);}
+.ausboss-compare-erasebar .ausboss-scrub{flex:none;}
+.ausboss-compare-field{display:flex;align-items:center;gap:4px;flex:none;}
+.ausboss-compare-label{flex:none;color:#9fb6b4;font-size:10px;line-height:22px;white-space:nowrap;user-select:none;}
+.ausboss-compare-steps{display:flex;align-items:center;gap:6px;flex:none;margin-left:auto;}
+.ausboss-compare-saverow{display:none;box-sizing:border-box;flex-wrap:wrap;align-items:center;gap:4px 8px;flex:none;min-height:${SAVE_ROW_HEIGHT}px;}
+.ausboss-compare-root.is-erasing .ausboss-compare-saverow{display:flex;}
+.ausboss-compare-saveend{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px 8px;flex:none;max-width:100%;margin-left:auto;}
+.ausboss-compare-stage.is-erasing{min-height:32px;}
+.ausboss-compare-name{flex:1 1 110px;min-width:0;display:flex;align-items:center;gap:4px;}
+.ausboss-compare-name input{box-sizing:border-box;flex:1 1 auto;min-width:40px;width:40px;height:24px;padding:0 7px;border:1px solid #3a4047;border-radius:5px;background:#0f1516;color:#d8eeee;font:11px/22px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;outline:none;}
+.ausboss-compare-name input:focus{border-color:${BRAND};}
+.ausboss-compare-name input:disabled{color:#7f9896;border-style:dashed;}
+.ausboss-compare-name input::placeholder{color:#5f7674;}
+.ausboss-compare-savebtn{box-sizing:border-box;flex:none;display:inline-flex;align-items:center;gap:6px;height:${SAVE_ROW_HEIGHT}px;padding:0 14px 0 11px;border:1px solid ${BRAND};border-radius:6px;background:${BRAND};color:#04201d;font:700 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:.04em;cursor:pointer;box-shadow:0 0 9px rgba(0,180,170,.32);}
+.ausboss-compare-savebtn:hover{background:#19cdc2;border-color:#19cdc2;}
+.ausboss-compare-savebtn:disabled{background:#16302e;border-color:#23504c;color:#5f8a86;box-shadow:none;cursor:default;}
+.ausboss-compare-copybtn{box-sizing:border-box;flex:none;display:inline-flex;align-items:center;gap:6px;height:${SAVE_ROW_HEIGHT}px;padding:0 12px 0 10px;border:1px solid rgba(0,180,170,.7);border-radius:6px;background:transparent;color:#7fe6dd;font:700 11px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:.04em;cursor:pointer;}
+.ausboss-compare-copybtn:hover{background:rgba(0,180,170,.14);border-color:${BRAND};color:#b6fff8;}
+.ausboss-compare-copybtn:disabled{border-color:#23504c;color:#5f8a86;background:transparent;cursor:default;}
+.ausboss-compare-root .ausboss-video-tool:disabled{opacity:.42;cursor:default;pointer-events:none;}
+.ausboss-compare-erase{position:absolute;inset:0;width:100%;height:100%;display:none;cursor:crosshair;touch-action:none;}
+.ausboss-compare-stage.is-erasing:not(.is-empty) .ausboss-compare-erase{display:block;}
+.ausboss-compare-stage.is-erasing img,.ausboss-compare-stage.is-erasing .ausboss-compare-seam,.ausboss-compare-stage.is-erasing .ausboss-compare-identity{display:none;}
+`;
+
+function sized(canvas, width, height) {
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  return canvas.getContext("2d");
+}
+
+// One stroke onto a mask, `scale` mask pixels to a pixel of the picture.
+// What the mask holds is how much of the top picture is gone: a stroke that
+// rubs away adds to it, one that brings back takes from it, each by the
+// brush's solid middle blurred into its soft edge.
+function drawStroke(ctx, stroke, scale) {
+  const soft = stroke.s / 100;
+  const core = Math.max(0.01, brushCore(stroke.d, soft) * scale);
+  const sigma = brushSigma(stroke.d, soft) * scale;
+  const path = stroke.p;
+  let shift = 0;
+  ctx.save();
+  ctx.globalCompositeOperation = stroke.o ? "source-over" : "destination-out";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = core * 2;
+  ctx.strokeStyle = "#000";
+  ctx.fillStyle = "#000";
+  if (sigma >= 0.25) {
+    if (CAN_FILTER) {
+      ctx.filter = `blur(${sigma.toFixed(3)}px)`;
+    } else {
+      // Far enough that the stroke itself never lands on the canvas.
+      shift = Math.ceil(ctx.canvas.width + 2 * (ERASE_OUTSIDE * scale + core + 3 * sigma) + 16);
+      ctx.shadowColor = "#000";
+      ctx.shadowBlur = sigma * 2;
+      ctx.shadowOffsetX = shift;
+    }
+  }
+  ctx.beginPath();
+  if (path.length === 2) {
+    ctx.arc(path[0] * scale - shift, path[1] * scale, core, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    ctx.moveTo(path[0] * scale - shift, path[1] * scale);
+    for (let index = 2; index < path.length; index += 2) ctx.lineTo(path[index] * scale - shift, path[index + 1] * scale);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// The brush as one dab in a colour: its solid middle and its soft edge, at
+// the size it has in the view. Kept until the brush or the view changes.
+function dabOf(er, size, soft, scale, colour) {
+  const key = `${size}|${soft}|${scale.toFixed(5)}|${colour}`;
+  const reach = Math.ceil((brushCore(size, soft / 100) + 3 * brushSigma(size, soft / 100)) * scale) + 2;
+  if (reach * 2 > 4096) return null;
+  if (er.dabKey !== key) {
+    const ctx = sized(er.dab, reach * 2, reach * 2);
+    ctx.clearRect(0, 0, reach * 2, reach * 2);
+    drawStroke(ctx, { o: 1, d: size, s: soft, p: [reach / scale, reach / scale] }, scale);
+    ctx.globalCompositeOperation = "source-in";
+    ctx.fillStyle = colour;
+    ctx.fillRect(0, 0, reach * 2, reach * 2);
+    ctx.globalCompositeOperation = "source-over";
+    er.dabKey = key;
+  }
+  return { canvas: er.dab, reach };
+}
+
+function topOf(er) {
+  return normalizeTop(er.node.properties?.[TOP_PROPERTY]);
+}
+
+function brushSize(er) {
+  const stored = Number(er.node.properties?.[SIZE_PROPERTY]);
+  // Until it is set by hand the brush follows the picture.
+  return Number.isFinite(stored) && stored > 0 ? clampSize(stored) : defaultBrushSize(er.width, er.height);
+}
+
+function brushSoft(er) {
+  const stored = er.node.properties?.[SOFT_PROPERTY];
+  return stored == null ? ERASE_SOFT_DEFAULT : clampSoft(stored);
+}
+
+function setProperty(er, name, value) {
+  er.node.properties ??= {};
+  er.node.properties[name] = value;
+}
+
+// The mask from every kept stroke, drawn afresh.
+function rebuildMask(er) {
+  const scale = er.maskScale = previewScale(er.width, er.height);
+  const ctx = sized(er.mask, Math.max(1, Math.round(er.width * scale)), Math.max(1, Math.round(er.height * scale)));
+  ctx.clearRect(0, 0, er.mask.width, er.mask.height);
+  for (const stroke of er.strokes) drawStroke(ctx, stroke, scale);
+}
+
+function schedule(er) {
+  if (er.frame || !er.active) return;
+  er.frame = requestAnimationFrame(() => draw(er));
+}
+
+// The view's own pixels follow its size on screen, so the picture stays
+// sharp when the graph is zoomed in, and never fall under its layout size.
+function sizeView(er) {
+  const rect = er.canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  let width = Math.max(rect.width, er.canvas.clientWidth) * ratio;
+  let height = Math.max(rect.height, er.canvas.clientHeight) * ratio;
+  const over = Math.max(width, height) / VIEW_SIDE;
+  if (over > 1) {
+    width /= over;
+    height /= over;
+  }
+  width = Math.max(1, Math.round(width));
+  height = Math.max(1, Math.round(height));
+  // A few pixels either way are not worth a new canvas.
+  if (Math.abs(er.canvas.width - width) > 2 || Math.abs(er.canvas.height - height) > 2) {
+    er.canvas.width = width;
+    er.canvas.height = height;
+  }
+}
+
+// See-through parts show over a checkerboard, as on the Slide view, its
+// squares as big on screen.
+function drawCheckerboard(er, ctx, fit) {
+  const side = Math.max(2, Math.round(CHECKER.side * er.canvas.width / Math.max(1, er.canvas.clientWidth)));
+  if (er.checker?.side !== side) {
+    const tile = document.createElement("canvas");
+    const tileCtx = sized(tile, side * 2, side * 2);
+    tileCtx.fillStyle = CHECKER.dark;
+    tileCtx.fillRect(0, 0, side * 2, side * 2);
+    tileCtx.fillStyle = CHECKER.light;
+    tileCtx.fillRect(0, 0, side, side);
+    tileCtx.fillRect(side, side, side, side);
+    er.checker = { side, pattern: ctx.createPattern(tile, "repeat") };
+  }
+  er.checker.pattern.setTransform?.(new DOMMatrix([1, 0, 0, 1, fit.left, fit.top]));
+  ctx.fillStyle = er.checker.pattern;
+  ctx.fillRect(fit.left, fit.top, fit.width, fit.height);
+}
+
+// Use the cursor's actual dab. A compressed size scale keeps both a
+// two-pixel brush and a two-thousand-pixel brush legible in the toolbar.
+function drawBrushSwatch(er) {
+  const size = brushSize(er);
+  const soft = brushSoft(er);
+  const back = er.back !== Boolean(er.flipKey);
+  const key = `${size}|${soft}|${back}`;
+  if (er.swatchKey === key) return;
+  er.swatchKey = key;
+  const swatch = er.swatch;
+  const side = swatch.width;
+  const fraction = Math.log(size / ERASE_SIZE[0]) / Math.log(ERASE_SIZE[1] / ERASE_SIZE[0]);
+  const diameter = side * (0.22 + 0.66 * fraction);
+  const dab = dabOf(er, size, soft, diameter / size, back ? BACK_TINT : RUB_TINT);
+  const ctx = swatch.getContext("2d");
+  ctx.clearRect(0, 0, side, side);
+  ctx.drawImage(dab.canvas, side / 2 - dab.reach, side / 2 - dab.reach);
+  swatch.title = `${back ? "Restore" : "Erase"} brush: ${size} px, ${soft}% soft`;
+  swatch.setAttribute("aria-label", swatch.title);
+}
+
+function draw(er) {
+  er.frame = 0;
+  if (!er.active) return;
+  drawBrushSwatch(er);
+  if (!er.refs) return;
+  sizeView(er);
+  const { canvas } = er;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const box = fitRect(canvas.width, canvas.height, er.width, er.height);
+  const width = Math.max(1, Math.round(box.width));
+  const height = Math.max(1, Math.round(box.height));
+  const fit = er.fit = { left: Math.round(box.left), top: Math.round(box.top), width, height, scale: width / er.width };
+  const [top, under] = topOf(er) === "B" ? [er.imageB, er.imageA] : [er.imageA, er.imageB];
+
+  // The mask as it stands: the kept strokes, and the one being drawn.
+  let mask = er.mask;
+  if (er.stroke) {
+    const live = sized(er.live, width, height);
+    live.globalCompositeOperation = "copy";
+    live.drawImage(er.mask, 0, 0, width, height);
+    drawStroke(live, { o: er.stroke.back ? 0 : 1, d: er.stroke.size, s: er.stroke.soft, p: er.stroke.points.flat() }, fit.scale);
+    mask = er.live;
+  }
+  // The top picture with the mask cut out of it, over the other picture.
+  // A picture of another size is fitted to A's, as the saved mix does.
+  const cut = sized(er.cut, width, height);
+  cut.globalCompositeOperation = "copy";
+  cut.drawImage(top, 0, 0, width, height);
+  cut.globalCompositeOperation = "destination-out";
+  cut.drawImage(mask, 0, 0, width, height);
+  if (er.refs.a?.alpha || er.refs.b?.alpha) drawCheckerboard(er, ctx, fit);
+  ctx.drawImage(under, fit.left, fit.top, width, height);
+  ctx.drawImage(er.cut, fit.left, fit.top);
+
+  // The brush around the pointer: its shape as a tint (the solid middle and
+  // the soft edge), and a ring at its full size. While a stroke is drawn
+  // only the ring stays, so the paint is not hidden.
+  const setting = er.adjust;
+  const at = setting ? setting.anchor : er.pointer;
+  if (at) {
+    const size = er.stroke?.size ?? brushSize(er);
+    const soft = er.stroke?.soft ?? brushSoft(er);
+    const back = !setting && (er.stroke ? er.stroke.back : er.back !== Boolean(er.flipKey));
+    const x = fit.left + at[0] * fit.scale;
+    const y = fit.top + at[1] * fit.scale;
+    const line = Math.max(1, canvas.width / Math.max(1, canvas.getBoundingClientRect().width));
+    const dab = er.stroke ? null : dabOf(er, size, soft, fit.scale, back ? BACK_TINT : RUB_TINT);
+    if (dab) {
+      ctx.globalAlpha = setting ? TINT_SETTING : TINT_AIMING;
+      ctx.drawImage(dab.canvas, Math.round(x - dab.reach), Math.round(y - dab.reach));
+      ctx.globalAlpha = 1;
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(1.5, (size / 2) * fit.scale), 0, Math.PI * 2);
+    ctx.lineWidth = 3 * line;
+    ctx.strokeStyle = "rgba(0,0,0,.55)";
+    ctx.stroke();
+    ctx.lineWidth = 1.3 * line;
+    ctx.strokeStyle = back ? BACK_RING : RUB_RING;
+    ctx.stroke();
+    if (setting) {
+      // Where the solid middle ends: the ring that moves when the edge is
+      // made softer or harder.
+      const core = brushCore(size, soft / 100) * fit.scale;
+      if (core >= 2) {
+        ctx.beginPath();
+        ctx.arc(x, y, core, 0, Math.PI * 2);
+        ctx.setLineDash([4 * line, 4 * line]);
+        ctx.lineWidth = 1.2 * line;
+        ctx.strokeStyle = "rgba(255,255,255,.85)";
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // Both values in words under the brush, the one being set in white.
+      const axis = setting.drag.axis;
+      const words = brushWords(size, soft);
+      const parts = [[words[0], axis !== "soft"], [words[1], axis !== "size"]];
+      ctx.font = `600 ${Math.round(11 * line)}px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif`;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      const gap = 10 * line;
+      const widths = parts.map(([text]) => ctx.measureText(text).width);
+      const width = widths[0] + widths[1] + gap + 14 * line;
+      const height = 18 * line;
+      const rim = Math.max(1.5, (size / 2) * fit.scale);
+      const below = y + rim + 8 * line + height <= canvas.height;
+      const top = Math.max(2 * line, below ? y + rim + 8 * line : y - height / 2);
+      const left = Math.min(canvas.width - width - 2 * line, Math.max(2 * line, x - width / 2));
+      ctx.fillStyle = "rgba(0,0,0,.74)";
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(left, top, width, height, 4 * line);
+      else ctx.rect(left, top, width, height);
+      ctx.fill();
+      let textLeft = left + 7 * line;
+      parts.forEach(([text, lit], index) => {
+        ctx.fillStyle = lit ? "#eafffd" : "#7f9896";
+        ctx.fillText(text, textLeft, top + height / 2 + line * 0.5);
+        textLeft += widths[index] + gap;
+      });
+    }
+  }
+}
+
+// Where the pointer is on the picture, in picture pixels.
+function pointOf(er, event) {
+  const rect = er.canvas.getBoundingClientRect();
+  const fit = er.fit;
+  if (!(rect.width > 0) || !(rect.height > 0) || !(fit?.scale > 0)) return null;
+  const x = ((event.clientX - rect.left) / rect.width) * er.canvas.width;
+  const y = ((event.clientY - rect.top) / rect.height) * er.canvas.height;
+  return [(x - fit.left) / fit.scale, (y - fit.top) / fit.scale];
+}
+
+// Is a name wired into the node's filename input? Then the run names the
+// files, and the field on the node only shows that name.
+function nameIsWired(er) {
+  return er.node.inputs?.some((input) => input?.name === "filename" && input.link != null) ?? false;
+}
+
+function syncTools(er) {
+  const ready = Boolean(er.refs);
+  const top = topOf(er);
+  const other = top === "A" ? "B" : "A";
+  er.kindSwitch.set(er.back !== Boolean(er.flipKey) ? "restore" : "erase");
+  er.kindSwitch.describe("erase", { title: `画笔擦掉 ${top} ，让 ${other} 透出来。按住 Ctrl 或用右键则改为补回来。` });
+  er.kindSwitch.describe("restore", { title: `画笔把 ${top} 补回来。按住 Ctrl 或用右键则改为擦掉。` });
+  er.topSwitch.set(top);
+  const layers = er.node.properties?.[LAYERS_PROPERTY] === true;
+  er.layersSwitch.set(layers ? "on" : "off");
+  const aligned = Boolean(er.refs?.aligned);
+  er.alignButton.disabled = !ready || er.aligning;
+  er.alignButton.textContent = er.aligning ? "Aligning" : "Align";
+  er.alignButton.classList.toggle("active", aligned);
+  er.alignButton.title = !ready
+    ? "请先运行工作流：对齐需要两张图。"
+    : aligned
+      ? "B 已与 A 对齐。点击可还原 B 原样。"
+      : "对齐：模型把画面挪动或缩放了少许时，把 B 对到 A 上。再点一次可撤销。";
+  er.undoButton.disabled = !er.history.length && !er.strokes.length;
+  er.clearButton.disabled = !er.strokes.length;
+  er.saveButton.disabled = !ready || er.saving;
+  er.saveLabel.textContent = er.saving ? "Saving" : "Save";
+  er.copyButton.disabled = !ready || er.copying;
+  er.copyLabel.textContent = er.copying ? "Copying" : "Copy";
+  er.copyButton.title = ready
+    ? "把这张混合图按原尺寸复制到剪贴板，可粘到编辑器或聊天窗口。不保存文件。"
+    : "请先运行工作流：复制需要两张图。";
+  // The name: typed here, or shown as the run got it from the input.
+  const wired = nameIsWired(er);
+  const typed = String(er.node.properties?.[NAME_PROPERTY] ?? "");
+  er.nameInput.disabled = wired;
+  if (wired) er.nameInput.value = er.refs?.name || "";
+  else if (document.activeElement !== er.nameInput) er.nameInput.value = typed;
+  er.nameInput.placeholder = wired ? "取自文件名输入" : "compare";
+  const hint = nameHint(wired ? er.refs?.name : typed, layers);
+  er.nameInput.title = wired
+    ? `文件名输入决定文件名： ${hint}。它们会存到 ComfyUI 的 output 文件夹。`
+    : `保存的文件叫什么名字。Save 会写出 ${hint} 到 ComfyUI 的 output 文件夹，编号依次递增。可用字母、数字、空格、点、短横线和下划线。`;
+  er.saveButton.title = ready
+    ? `把这幅混合图存到 ComfyUI 的 output 文件夹，文件名为 ${hint}。不会重新运行任何东西。`
+    : "请先运行工作流：保存需要两张图。";
+}
+
+// Keep the strokes with the node, so a tab switch or ComfyUI's own undo
+// finds them again.
+function keep(er) {
+  setProperty(er, PAINT_PROPERTY, { w: er.width, h: er.height, strokes: er.strokes });
+  notifyAusbossChange();
+}
+
+function change(er, strokes) {
+  er.history.push(er.strokes);
+  if (er.history.length > UNDO_KEPT) er.history.shift();
+  er.strokes = strokes;
+  keep(er);
+  syncTools(er);
+}
+
+function finishStroke(er, event, cancelled) {
+  const stroke = er.stroke;
+  if (!stroke || (event && event.pointerId !== stroke.id)) return;
+  er.stroke = null;
+  try { er.canvas.releasePointerCapture?.(stroke.id); } catch { /* already released */ }
+  if (!cancelled) {
+    const made = makeStroke(stroke.points, { erase: !stroke.back, size: stroke.size, soft: stroke.soft }, er.width, er.height);
+    if (made && strokeFits(er.strokes, made)) {
+      change(er, [...er.strokes, made]);
+      drawStroke(er.mask.getContext("2d"), made, er.maskScale);
+    } else if (made) {
+      showToast({ severity: "warn", detail: "这幅混合图已经涂到上限。先保存，或按 Clear 重新开始。" });
+    }
+  }
+  schedule(er);
+}
+
+function setSize(er, size) {
+  const next = clampSize(size);
+  if (er.node.properties?.[SIZE_PROPERTY] === next) return;
+  setProperty(er, SIZE_PROPERTY, next);
+  er.sizeBox.set(next);
+  schedule(er);
+}
+
+function setSoft(er, soft) {
+  const next = clampSoft(soft);
+  if (er.node.properties?.[SOFT_PROPERTY] === next) return;
+  setProperty(er, SOFT_PROPERTY, next);
+  er.softBox.set(next);
+  schedule(er);
+}
+
+// The brush drag is over: keep what it set, or put the brush back.
+function finishAdjust(er, event, cancelled) {
+  const adjust = er.adjust;
+  if (!adjust || (event && event.pointerId !== adjust.id)) return;
+  er.adjust = null;
+  try { er.canvas.releasePointerCapture?.(adjust.id); } catch { /* already released */ }
+  if (cancelled) {
+    setSize(er, adjust.size);
+    setSoft(er, adjust.soft);
+  } else if (brushSize(er) !== adjust.size || brushSoft(er) !== adjust.soft) {
+    notifyAusbossChange();
+  }
+  schedule(er);
+}
+
+function onKey(er, event, down) {
+  const target = event.target;
+  if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+  // Alt is the brush drag's key. Kept from the browser, which would open
+  // its menu on it.
+  if (event.key === "Alt") {
+    event.preventDefault();
+    return;
+  }
+  // Ctrl does the opposite of the chosen tool for as long as it is held.
+  if (event.key === "Control") {
+    er.flipKey = down;
+    syncTools(er);
+    schedule(er);
+    return;
+  }
+  // Ctrl+Z and Ctrl+Y stay ComfyUI's own: a stroke is a change to the graph,
+  // so its undo takes strokes back too.
+  if (!down || event.ctrlKey || event.metaKey) return;
+  if (event.key === "Escape" && (er.stroke || er.adjust)) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    finishStroke(er, null, true);
+    finishAdjust(er, null, true);
+    return;
+  }
+  // [ and ] for the size, with Shift for the edge, as in Photoshop.
+  const key = brushKey(event);
+  if (key) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (key.what === "soft") setSoft(er, steppedSoft(brushSoft(er), key.up));
+    else setSize(er, steppedSize(brushSize(er), key.up));
+    notifyAusbossChange();
+    return;
+  }
+  // E erases and B (the brush) paints the top picture back, as on Mask by
+  // Touch, whose W picks; here there is nothing to pick.
+  const tool = toolKey(event);
+  if ((tool === "erase" || tool === "paint") && !er.stroke && !er.adjust) {
+    event.preventDefault();
+    event.stopPropagation();
+    er.back = tool === "paint";
+    syncTools(er);
+    schedule(er);
+  }
+}
+
+function installPointer(er, signal) {
+  const { canvas } = er;
+  canvas.addEventListener("pointerdown", (event) => {
+    // The middle button pans the graph, as everywhere else.
+    if (!er.refs || (event.button !== 0 && event.button !== 2) || er.stroke || er.adjust) return;
+    const point = pointOf(er, event);
+    if (!point) return;
+    event.preventDefault();
+    event.stopPropagation();
+    try { canvas.setPointerCapture?.(event.pointerId); } catch { /* a pointer that is already gone */ }
+    er.pointer = point;
+    // Alt and the right button together set the brush (on a Mac: Control
+    // and Option with a click). Ctrl, or the right button alone, does the
+    // opposite of the chosen tool.
+    if (brushAdjusts(event)) {
+      const rect = canvas.getBoundingClientRect();
+      er.adjust = {
+        id: event.pointerId,
+        // The brush as it was, for Escape, and the drag as it goes.
+        size: brushSize(er),
+        soft: brushSoft(er),
+        drag: startAdjust(event.clientX, event.clientY, { size: brushSize(er), soft: brushSoft(er) }),
+        anchor: point,
+        // Pixels of the picture under one pixel of the screen.
+        perPixel: canvas.width / Math.max(1, rect.width) / er.fit.scale,
+      };
+      schedule(er);
+      return;
+    }
+    er.stroke = {
+      id: event.pointerId,
+      back: er.back !== brushFlips(event),
+      size: brushSize(er),
+      soft: brushSoft(er),
+      points: [point],
+    };
+    schedule(er);
+  }, { signal });
+  canvas.addEventListener("pointermove", (event) => {
+    const point = pointOf(er, event);
+    if (!point) return;
+    er.pointer = point;
+    const adjust = er.adjust;
+    if (adjust && event.pointerId === adjust.id) {
+      adjust.drag = moveAdjust(adjust.drag, event.clientX, event.clientY, adjust.perPixel);
+      setSize(er, adjust.drag.brush.size);
+      setSoft(er, adjust.drag.brush.soft);
+      schedule(er);
+      return;
+    }
+    if (er.flipKey !== event.ctrlKey) {
+      er.flipKey = event.ctrlKey;
+      syncTools(er);
+    }
+    const stroke = er.stroke;
+    if (stroke && event.pointerId === stroke.id) extendStroke(stroke.points, point[0], point[1], Math.max(1, stroke.size / 12));
+    schedule(er);
+  }, { signal });
+  canvas.addEventListener("pointerup", (event) => { finishStroke(er, event, false); finishAdjust(er, event, false); }, { signal });
+  canvas.addEventListener("pointercancel", (event) => { finishStroke(er, event, true); finishAdjust(er, event, true); }, { signal });
+  canvas.addEventListener("pointerenter", () => {
+    if (er.keys) return;
+    er.keys = new AbortController();
+    const options = { signal: er.keys.signal, capture: true };
+    window.addEventListener("keydown", (event) => onKey(er, event, true), options);
+    window.addEventListener("keyup", (event) => onKey(er, event, false), options);
+  }, { signal });
+  canvas.addEventListener("pointerleave", () => {
+    if (er.stroke || er.adjust) return;
+    er.keys?.abort();
+    er.keys = null;
+    er.pointer = null;
+    er.flipKey = false;
+    syncTools(er);
+    schedule(er);
+  }, { signal });
+  canvas.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  }, { signal });
+  signal.addEventListener("abort", () => er.keys?.abort());
+}
+
+async function save(er) {
+  if (er.signal.aborted || er.saving || !er.refs) return;
+  er.saving = true;
+  syncTools(er);
+  try {
+    const response = await api.fetchApi(SAVE_ROUTE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(saveRequest({
+        pair: er.refs.pair,
+        top: topOf(er),
+        strokes: er.strokes,
+        layers: er.node.properties?.[LAYERS_PROPERTY] === true,
+        name: er.node.properties?.[NAME_PROPERTY],
+      })),
+    });
+    const answer = await response.json().catch(() => null);
+    if (er.signal.aborted) return;
+    if (!response.ok) {
+      // No words from the route: this ComfyUI started before the update.
+      const missing = (response.status === 404 || response.status === 405) && !answer?.error;
+      throw new Error(missing ? "重启一次 ComfyUI 再保存：AusBoss 的更新只加载了一半。" : (answer?.error || `服务器返回 ${response.status}.`));
+    }
+    showToast({ severity: "success", summary: "图像对比", detail: savedMessage(answer?.files) });
+    er.onSaved?.(answer?.files ?? []);
+  } catch (error) {
+    if (er.signal.aborted) return;
+    showToast({ severity: "error", summary: "图像对比", detail: String(error?.message ?? error), life: 8000 });
+  } finally {
+    er.saving = false;
+    if (!er.signal.aborted) syncTools(er);
+  }
+}
+
+// Line B up with A on the server (Realign to Source's measuring), or go back
+// to B as it came. The panel swaps in the pictures; Save and Copy then use
+// the lined-up B, and the paint stays where it is.
+async function align(er) {
+  if (er.signal.aborted || er.aligning || !er.refs) return;
+  if (er.refs.aligned) {
+    er.onAligned?.(er.refs.original);
+    return;
+  }
+  er.aligning = true;
+  const refs = er.refs;
+  const picturesVersion = er.picturesVersion;
+  const current = () => !er.signal.aborted && er.refs === refs && er.picturesVersion === picturesVersion;
+  syncTools(er);
+  try {
+    const response = await api.fetchApi(ALIGN_ROUTE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pair: refs.pair }),
+    });
+    const answer = await response.json().catch(() => null);
+    if (!current()) return;
+    if (!response.ok) {
+      // No words from the route: this ComfyUI started before the update.
+      const missing = (response.status === 404 || response.status === 405) && !answer?.error;
+      throw new Error(missing ? "重启一次 ComfyUI 再对齐：AusBoss 的更新只加载了一半。" : (answer?.error || `服务器返回 ${response.status}.`));
+    }
+    if (answer?.aligned && answer.b?.filename && typeof answer.pair === "string") {
+      showToast({ severity: "success", summary: "图像对比", detail: answer.message, life: 4000 });
+      er.onAligned?.({ ...refs, b: answer.b, pair: answer.pair, aligned: true, original: refs });
+    } else {
+      showToast({ severity: "info", summary: "图像对比", detail: answer?.message || "B 保持原样。", life: 6000 });
+    }
+  } catch (error) {
+    if (!current()) return;
+    showToast({ severity: "error", summary: "图像对比", detail: String(error?.message ?? error), life: 8000 });
+  } finally {
+    er.aligning = false;
+    if (!er.signal.aborted) syncTools(er);
+  }
+}
+
+// The mix as a PNG, made here at the pictures' full size: the strokes drawn
+// as the view draws them, one mask pixel to a pixel of the picture.
+function mixBlob(er) {
+  const { width, height } = er;
+  const [top, under] = topOf(er) === "B" ? [er.imageB, er.imageA] : [er.imageA, er.imageB];
+  const mask = document.createElement("canvas");
+  const maskCtx = sized(mask, width, height);
+  for (const stroke of er.strokes) drawStroke(maskCtx, stroke, 1);
+  const cut = document.createElement("canvas");
+  const cutCtx = sized(cut, width, height);
+  cutCtx.drawImage(top, 0, 0, width, height);
+  cutCtx.globalCompositeOperation = "destination-out";
+  cutCtx.drawImage(mask, 0, 0);
+  const out = document.createElement("canvas");
+  const ctx = sized(out, width, height);
+  ctx.drawImage(under, 0, 0, width, height);
+  ctx.drawImage(cut, 0, 0);
+  return new Promise((resolve, reject) => {
+    out.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("浏览器没能生成这张图。"))), "image/png");
+  });
+}
+
+// Copy the mix to the clipboard. Browsers only let a page write a picture
+// there when it is opened as localhost or over https.
+function copy(er) {
+  if (er.copying || !er.refs) return;
+  if (!window.isSecureContext || !navigator.clipboard?.write || typeof ClipboardItem === "undefined") {
+    showToast({
+      severity: "warn",
+      summary: "图像对比",
+      detail: "只有用 localhost 或 https 打开 ComfyUI 时，浏览器才允许网页复制图片。保存功能在任何方式下都能用。",
+      life: 8000,
+    });
+    return;
+  }
+  er.copying = true;
+  syncTools(er);
+  const picture = mixBlob(er);
+  // The picture goes in still being made, inside the click: Safari only
+  // copies from a click, and making a large one takes a moment.
+  let write;
+  try {
+    write = navigator.clipboard.write([new ClipboardItem({ "image/png": picture })]);
+  } catch {
+    write = picture.then((blob) => navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]));
+  }
+  write.then(
+    () => showToast({ severity: "success", summary: "图像对比", detail: "混合图已在剪贴板里，可粘到编辑器或聊天窗口。", life: 3000 }),
+    (error) => showToast({
+      severity: "error",
+      summary: "图像对比",
+      detail: error?.name === "NotAllowedError"
+        ? "浏览器不允许这个页面复制图片。保存功能在任何方式下都能用。"
+        : `复制混合图失败： ${error?.message ?? error}`,
+      life: 8000,
+    }),
+  ).finally(() => {
+    er.copying = false;
+    syncTools(er);
+  });
+}
+
+// Build the Erase tools for one Compare panel. `onSaved` is told which
+// files a save wrote. The caller places `bar` above the stage and
+// `saveRow` under its footer, and tells the eraser when the mode or the
+// pictures change.
+export function makeEraser({ node, root, stage, imageA, imageB, signal, onSaved, onAligned }) {
+  const er = {
+    node, root, stage, imageA, imageB, signal, onSaved, onAligned,
+    canvas: document.createElement("canvas"),
+    mask: document.createElement("canvas"),
+    live: document.createElement("canvas"),
+    cut: document.createElement("canvas"),
+    dab: document.createElement("canvas"),
+    dabKey: "",
+    maskScale: 1,
+    refs: null, picturesVersion: 0, width: 0, height: 0, fit: null,
+    strokes: [], history: [],
+    active: false, stroke: null, adjust: null, pointer: null, back: false, flipKey: false,
+    saving: false, copying: false, frame: 0, keys: null,
+  };
+  er.canvas.className = "ausboss-compare-erase";
+  stage.append(er.canvas);
+
+  const click = (button, action) => {
+    button.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      action(event);
+    }, { signal });
+    return button;
+  };
+
+  const labelled = (name, help, ...controls) => {
+    const wrap = document.createElement("div");
+    wrap.className = "ausboss-compare-field";
+    const label = document.createElement("span");
+    label.className = "ausboss-compare-label";
+    label.textContent = name;
+    label.title = help;
+    wrap.append(label, ...controls);
+    return { wrap, label };
+  };
+
+  // The tool row above the picture: what the brush does, its size and
+  // edge, which picture is on top, and taking strokes back.
+  er.bar = document.createElement("div");
+  er.bar.className = "ausboss-compare-erasebar";
+  er.kindSwitch = makeSlideSwitch({
+    label: "画笔的作用",
+    options: [{ value: "erase", label: "Erase" }, { value: "restore", label: "Restore" }],
+    value: "erase",
+    signal,
+    onChange: (value) => { er.back = value === "restore"; syncTools(er); schedule(er); },
+  });
+  const SIZE_HELP = "画笔宽度，按画面像素计。在这里或数字上拖动即可调整。也可用 [ 和 ] 键，或按住 Alt 在画面上按右键左右拖动。";
+  const SOFT_HELP = "画笔边缘的柔度：0 是硬边，100 从中点一路渐隐。在这里或数字上拖动即可调整。也可用 Shift + [ 和 ]，或按住 Alt 在画面上按右键上拖（更柔）下拖（更硬）。";
+  er.sizeBox = makeScrubInput({
+    value: brushSize(er),
+    min: ERASE_SIZE[0],
+    max: ERASE_SIZE[1],
+    step: 2,
+    fineStep: 1,
+    decimals: 0,
+    width: 66,
+    unit: "px",
+    title: SIZE_HELP,
+    onChange: (value) => setSize(er, value),
+    onSettle: () => notifyAusbossChange(),
+  });
+  er.softBox = makeScrubInput({
+    value: brushSoft(er),
+    min: 0,
+    max: 100,
+    step: 5,
+    fineStep: 1,
+    decimals: 0,
+    width: 58,
+    unit: "%",
+    title: SOFT_HELP,
+    onChange: (value) => { setProperty(er, SOFT_PROPERTY, clampSoft(value)); schedule(er); },
+    onSettle: () => notifyAusbossChange(),
+  });
+  // Each number with its name in front of it. The name scrubs the number
+  // too, and so does the unit inside the box: the whole field is one handle.
+  const scrubField = (name, box, help) => {
+    const { wrap, label } = labelled(name, help, box.root);
+    box.input.setAttribute("aria-label", name);
+    box.handle(label);
+    box.handle(box.root);
+    wrap.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal });
+    return wrap;
+  };
+  const sizeField = scrubField("Size", er.sizeBox, SIZE_HELP);
+  er.swatch = document.createElement("canvas");
+  er.swatch.className = "ausboss-compare-brush-swatch";
+  er.swatch.width = er.swatch.height = 64;
+  er.swatch.setAttribute("role", "img");
+  sizeField.prepend(er.swatch);
+  const softField = scrubField("Soft", er.softBox, SOFT_HELP);
+  const TOP_HELP = "从哪张图开始看。画笔把另一张透出来。切换会保留你涂的部分。";
+  er.topSwitch = makeSlideSwitch({
+    label: "上层图片",
+    options: [{ value: "A", label: "A", title: "A 在上层；画笔透出 B。" }, { value: "B", label: "B", title: "B 在上层；画笔透出 A。" }],
+    value: topOf(er),
+    signal,
+    onChange: (value) => {
+      if (value === topOf(er)) return;
+      setProperty(er, TOP_PROPERTY, value);
+      notifyAusbossChange();
+      syncTools(er);
+      schedule(er);
+    },
+  });
+  const topField = labelled("上层", TOP_HELP, er.topSwitch.root).wrap;
+  // Align, Undo and Clear stay together at the right end, also on a second line.
+  const steps = document.createElement("div");
+  steps.className = "ausboss-compare-steps";
+  er.undoButton = click(compactAction("Undo", "撤销最后一笔，或撤销一次 Clear。"), () => {
+    if (!er.history.length && !er.strokes.length) return;
+    // Paint that came with the workflow has no steps of its own to go back
+    // through: its last stroke is taken off.
+    er.strokes = er.history.length ? er.history.pop() : er.strokes.slice(0, -1);
+    keep(er);
+    rebuildMask(er);
+    syncTools(er);
+    schedule(er);
+  });
+  er.clearButton = click(compactAction("Clear", "清掉所有涂抹。撤销可以恢复。"), () => {
+    if (!er.strokes.length) return;
+    change(er, []);
+    rebuildMask(er);
+    schedule(er);
+  });
+  er.alignButton = click(compactAction("Align", ""), () => align(er));
+  steps.append(er.alignButton, er.undoButton, er.clearButton);
+  er.bar.append(er.kindSwitch.root, sizeField, softField, topField, steps);
+
+  // The save row under the picture: the name, the layers choice, and Save
+  // at the right end, where the eye ends up.
+  er.saveRow = document.createElement("div");
+  er.saveRow.className = "ausboss-compare-saverow";
+  const nameField = labelled("Name", "保存的文件叫什么名字。");
+  nameField.wrap.classList.add("ausboss-compare-name");
+  er.nameInput = document.createElement("input");
+  er.nameInput.type = "text";
+  er.nameInput.spellcheck = false;
+  er.nameInput.maxLength = 80;
+  er.nameInput.setAttribute("aria-label", "文件名");
+  er.nameInput.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal });
+  er.nameInput.addEventListener("keydown", (event) => {
+    keepKeyInField(event);
+    if (event.key === "Enter" || event.key === "Escape") er.nameInput.blur();
+  }, { signal });
+  er.nameInput.addEventListener("input", () => {
+    // Only what a file name can hold stays in the field, as it is typed.
+    const clean = typedName(er.nameInput.value);
+    if (clean !== er.nameInput.value) er.nameInput.value = clean;
+    setProperty(er, NAME_PROPERTY, clean);
+  }, { signal });
+  er.nameInput.addEventListener("change", () => { notifyAusbossChange(); syncTools(er); }, { signal });
+  nameField.wrap.append(er.nameInput);
+  const LAYERS_HELP = "开：Save 还会写一个 PSD，两张图各为一层，你的涂抹作为上层的图层蒙版，遮罩另存为单独的 PNG，供 Photoshop 或 GIMP 使用。关：只写 PNG。";
+  er.layersSwitch = makeSlideSwitch({
+    label: "同时保存带图层的 PSD",
+    offLeft: true,
+    options: [{ value: "off", label: "off", title: LAYERS_HELP }, { value: "on", label: "on", title: LAYERS_HELP }],
+    value: "off",
+    signal,
+    onChange: (value) => {
+      setProperty(er, LAYERS_PROPERTY, value === "on");
+      notifyAusbossChange();
+      syncTools(er);
+    },
+  });
+  const layersField = labelled("PSD", LAYERS_HELP, er.layersSwitch.root).wrap;
+  er.saveButton = document.createElement("button");
+  er.saveButton.type = "button";
+  er.saveButton.className = "ausboss-compare-savebtn";
+  er.saveButton.innerHTML = SAVE_ICON;
+  er.saveLabel = document.createElement("span");
+  er.saveLabel.textContent = "Save";
+  er.saveButton.append(er.saveLabel);
+  click(er.saveButton, () => save(er));
+  er.copyButton = document.createElement("button");
+  er.copyButton.type = "button";
+  er.copyButton.className = "ausboss-compare-copybtn";
+  er.copyButton.innerHTML = COPY_ICON;
+  er.copyLabel = document.createElement("span");
+  er.copyLabel.textContent = "Copy";
+  er.copyButton.append(er.copyLabel);
+  click(er.copyButton, () => copy(er));
+  // The PSD choice, Copy and Save keep together at the right end.
+  const saveEnd = document.createElement("div");
+  saveEnd.className = "ausboss-compare-saveend";
+  saveEnd.append(layersField, er.copyButton, er.saveButton);
+  er.saveRow.append(nameField.wrap, saveEnd);
+
+  installPointer(er, signal);
+  const resized = new ResizeObserver(() => schedule(er));
+  resized.observe(stage);
+  signal.addEventListener("abort", () => {
+    resized.disconnect();
+    if (er.frame) cancelAnimationFrame(er.frame);
+    er.frame = 0;
+    er.active = false;
+  });
+  syncTools(er);
+
+  return {
+    bar: er.bar,
+    saveRow: er.saveRow,
+    get active() { return er.active; },
+    // Erase mode on or off.
+    setActive(on) {
+      er.active = Boolean(on);
+      root.classList.toggle("is-erasing", er.active);
+      stage.classList.toggle("is-erasing", er.active);
+      if (!er.active) {
+        finishStroke(er, null, true);
+        finishAdjust(er, null, true);
+      }
+      syncTools(er);
+      schedule(er);
+    },
+    // Both pictures are loaded (or, with null, on their way). The paint is
+    // read from the node, and kept only while the picture keeps its size.
+    setPictures(refs) {
+      er.picturesVersion += 1;
+      const ready = Boolean(refs && imageA.naturalWidth > 0 && imageB.naturalWidth > 0);
+      er.refs = ready ? refs : null;
+      finishStroke(er, null, true);
+      finishAdjust(er, null, true);
+      if (ready) {
+        const width = imageA.naturalWidth;
+        const height = imageA.naturalHeight;
+        const stored = er.node.properties?.[PAINT_PROPERTY];
+        // The same picture size and the paint this panel put there itself:
+        // nothing to read again, and Undo keeps its steps.
+        const same = width === er.width && height === er.height && stored?.strokes === er.strokes;
+        er.width = width;
+        er.height = height;
+        er.fit = null;
+        if (!same) {
+          er.strokes = readPaint(stored, width, height).strokes;
+          er.history = [];
+          rebuildMask(er);
+        }
+      }
+      er.sizeBox.set(brushSize(er));
+      er.softBox.set(brushSoft(er));
+      syncTools(er);
+      schedule(er);
+    },
+    redraw: () => schedule(er),
+    // Something outside changed what the tools show (a link on the
+    // filename input).
+    refresh: () => syncTools(er),
+  };
+}

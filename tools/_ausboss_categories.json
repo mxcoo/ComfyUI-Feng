@@ -1,0 +1,13 @@
+{
+  "_note": "AusBoss 顶部节点分类 → 中文。🆎 是品牌徽标，保留。",
+  "categories": {
+    "🆎 AusBoss/Compatibility": "🆎 AusBoss/兼容",
+    "🆎 AusBoss/Image": "🆎 AusBoss/图像",
+    "🆎 AusBoss/Inpaint": "🆎 AusBoss/局部重绘",
+    "🆎 AusBoss/Krea2": "🆎 AusBoss/Krea2",
+    "🆎 AusBoss/Loaders": "🆎 AusBoss/加载",
+    "🆎 AusBoss/Mask": "🆎 AusBoss/遮罩",
+    "🆎 AusBoss/Utility": "🆎 AusBoss/实用工具",
+    "🆎 AusBoss/Video": "🆎 AusBoss/视频"
+  }
+}

@@ -1,0 +1,1226 @@
+// Workflow Note 🆎 — the card that makes a shared workflow self-explanatory.
+//
+// One hidden STRING widget holds the card as JSON (title, subtitle, author,
+// Markdown body, model rows, node-pack rows, links). This file renders it
+// on the node face, checks every model file and node pack against this
+// install, and opens the editor dialog. All parsing and the model match
+// live in js/shared/workflow_note.mjs under node:test.
+//
+// Safety: a downloaded workflow is someone else's text. Nothing here goes
+// through innerHTML - every string becomes a text node - and only http(s)
+// URLs become buttons or links (the parser already filtered them).
+
+import { api } from "../../../../scripts/api.js";
+import { app } from "../../../../scripts/app.js";
+import { setTileFace, TILE_FACE_CSS } from "../shared/tile_face.mjs";
+import { NOTE_TYPES, serializeNoteIdentity } from "../shared/note_identity.mjs";
+import { compactAction } from "../shared/panel_controls.mjs";
+import { BRAND, chainCallback, keepDomWidgetWidthAuto, notifyAusbossChange } from "../shared/index.mjs";
+import { collectGraphNodes } from "../shared/appearance.mjs";
+import { copyToClipboard } from "../shared/clipboard.mjs";
+import { confirmDiscard } from "../shared/discard_prompt.mjs";
+import { closeOnBackdropClick } from "../shared/dialog_backdrop.mjs";
+import { WIDGET_FRAME, fillNodeHeight, holdNodeMinHeight } from "../shared/panel_layout.mjs";
+import { hideInputsInDef, hideWidget } from "../shared/widget_visibility.mjs";
+import { suppressCoreImagePreview } from "../shared/core_preview.mjs";
+import {
+  COMMON_FOLDERS,
+  INPUT_FOLDER,
+  LAYOUTS,
+  MODEL_COLUMNS,
+  groupModels,
+  hostLabel,
+  listedSpelling,
+  loadersNeeding,
+  loraRowsNeeding,
+  matchInstalled,
+  noteFit,
+  noteIsEmpty,
+  noteShowsTileFace,
+  normalizeNote,
+  packsFromGraph,
+  parseMarkdown,
+  rowFromCells,
+  serializeNote,
+  subfolderOf,
+} from "../shared/workflow_note.mjs";
+import { comboValues, commitWidgetValue } from "../shared/widget_card_math.mjs";
+import { parseRows, serializeRows } from "../shared/lora_stack.mjs";
+
+const CSS_ID = "ausboss-workflow-note-css";
+const WIDGET_NAME = "ausboss_workflow_note_panel";
+const PANEL_MIN_WIDTH = 300;
+const CARD_MIN_HEIGHT = 160;
+const BANNER_MIN_HEIGHT = 64;
+const DEFAULT_SIZE = [520, 620];
+const FOLDER_CACHE_MS = 30000;
+// The classic canvas lays a node's first widget 2 px below its title. Only
+// used before the node has been laid out once; after that the widget's own
+// position is read.
+const PANEL_TOP = 2;
+
+// ---------------------------------------------------------------------------
+// Server lookups, cached across every note on the canvas
+// ---------------------------------------------------------------------------
+
+const folderLists = new Map(); // dir -> { at, promise }
+let modelFolders = null; // Promise<string[]> from GET /models
+
+function listFolder(dir, fresh = false) {
+  const cached = folderLists.get(dir);
+  if (!fresh && cached && performance.now() - cached.at < FOLDER_CACHE_MS) return cached.promise;
+  const promise = api
+    .fetchApi(`/models/${encodeURIComponent(dir)}`)
+    .then((response) => (response.ok ? response.json() : null))
+    .then((files) => (Array.isArray(files) ? files : null))
+    .catch(() => null);
+  folderLists.set(dir, { at: performance.now(), promise });
+  return promise;
+}
+
+function inputExists(name) {
+  const query = new URLSearchParams({ filename: name, type: "input" });
+  return api
+    .fetchApi(`/view?${query}`, { method: "HEAD" })
+    .then((response) => response.ok)
+    .catch(() => false);
+}
+
+function knownFolders() {
+  modelFolders ??= api
+    .fetchApi("/models")
+    .then((response) => (response.ok ? response.json() : []))
+    .then((list) => (Array.isArray(list) ? list.filter((item) => typeof item === "string") : []))
+    .catch(() => []);
+  return modelFolders;
+}
+
+function nodeTypeRegistered(type) {
+  return Boolean(type && globalThis.LiteGraph?.registered_node_types?.[type]);
+}
+
+function moduleOfType(type) {
+  return globalThis.LiteGraph?.registered_node_types?.[type]?.nodeData?.python_module;
+}
+
+// ---------------------------------------------------------------------------
+// CSS
+// ---------------------------------------------------------------------------
+
+function ensureCss() {
+  if (document.getElementById(CSS_ID)) return;
+  const style = document.createElement("style");
+  style.id = CSS_ID;
+  style.textContent = `
+${TILE_FACE_CSS}
+.ausboss-note{box-sizing:border-box;width:100%;height:100%;padding:2px 6px 6px;pointer-events:none;overflow:hidden;--accent:${BRAND};}
+.ausboss-note *{box-sizing:border-box;}
+.ausboss-note-card{position:relative;display:flex;flex-direction:column;width:100%;height:100%;overflow:hidden;border:1px solid rgba(0,180,170,.27);border-radius:6px;background:rgba(0,0,0,.28);color:#c8dddd;font:12px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+.ausboss-note-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;pointer-events:auto;padding:0 0 8px;}
+.ausboss-note-head{position:relative;padding:12px 40px 10px 16px;border-left:4px solid var(--accent);}
+.ausboss-note-title{margin:0;color:#f2f8f8;font-size:22px;font-weight:700;line-height:1.15;letter-spacing:-.01em;overflow-wrap:anywhere;}
+.ausboss-note-subtitle{margin:5px 0 0;color:#a9c4c2;font-size:12.5px;line-height:1.35;overflow-wrap:anywhere;}
+.ausboss-note-author{margin:6px 0 0;color:#78908e;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;}
+.ausboss-note.is-tile .ausboss-note-card{background:#080e10;border-color:#344446;border-left:3px solid var(--accent);}
+.ausboss-note.is-tile .ausboss-note-scroll{display:flex;padding:0;}
+.ausboss-note.is-tile .ausboss-note-head{display:flex;flex:1;min-width:0;padding:0;border:0;}
+.ausboss-note-read{position:relative;display:flex;align-items:center;gap:14px;width:100%;padding:8px 60px 8px 17px;border:0;background:transparent;color:#e8ebe7;text-align:left;font:600 18px/1.25 "IBM Plex Sans",system-ui,sans-serif;overflow-wrap:anywhere;cursor:pointer;}
+.ausboss-note-read svg{flex:none;width:25px;height:25px;fill:none;stroke:var(--accent);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+.ausboss-note-read::after{content:"";position:absolute;right:18px;width:7px;height:7px;border:solid #a2b6b6;border-width:2px 2px 0 0;transform:rotate(45deg);}
+.ausboss-note-read:hover{background:#10191b;}
+.ausboss-note-read:focus-visible{outline:2px solid var(--accent);outline-offset:-3px;}
+.ausboss-note.is-tile .ausboss-note-edit{top:50%;right:32px;transform:translateY(-50%);opacity:.65;pointer-events:auto;}
+.ausboss-note.is-tile .ausboss-note-head:is(:hover,:focus-within) .ausboss-note-edit{opacity:1;pointer-events:auto;}
+.ausboss-note-reader{box-sizing:border-box;width:min(640px,94vw);max-height:86vh;overflow:auto;margin:auto;padding:0 0 24px;border:1px solid #365154;border-radius:12px;background:#161f21;color:#e8ebe7;box-shadow:0 18px 64px #0008;font:15px/1.55 "IBM Plex Sans",system-ui,sans-serif;}
+.ausboss-note-reader::backdrop{background:#06090ab8;}
+.ausboss-note-reader-head{padding:20px 24px 16px;border-top:3px solid var(--accent);background:#080e10;}
+.ausboss-note-reader-head button{float:right;margin:0 0 6px 10px;}
+.ausboss-note-reader-head .ausboss-compact-action{height:32px;padding:0 12px;font-size:13px;}
+.ausboss-note-reader-head h2{margin:0;font:650 26px/1.2 "IBM Plex Sans",system-ui,sans-serif;color:#ecf4f4;overflow-wrap:anywhere;}
+.ausboss-note-reader-head p{margin:6px 0 0;color:#b4c5c5;overflow-wrap:anywhere;}
+.ausboss-note-reader .ausboss-note-section{padding:14px 24px 0;}
+.ausboss-note-reader .ausboss-note-body h2{font-size:19px;margin:18px 0 6px;}
+.ausboss-note-reader .ausboss-note-body h1{font-size:23px;}
+.ausboss-note-reader .ausboss-note-body li::marker{color:#6fc0aa;}
+.ausboss-note-table-scroll{max-width:100%;overflow-x:auto;margin:10px 0 14px;border:1px solid #344649;border-radius:6px;}
+.ausboss-note-table-scroll table{width:100%;border-collapse:collapse;font:inherit;}
+.ausboss-note-table-scroll :is(th,td){padding:6px 10px;vertical-align:top;overflow-wrap:anywhere;}
+.ausboss-note-table-scroll th{background:#102327;color:#ecf4f4;font:600 .88em/1.45 "IBM Plex Mono",ui-monospace,monospace;}
+.ausboss-note-table-scroll td{border-top:1px solid #344649;}
+.ausboss-note-table-scroll tbody tr:nth-child(even){background:#ffffff04;}
+.ausboss-note-tone-teal{color:#00b4aa;}
+.ausboss-note-tone-green{color:#6fc0aa;}
+.ausboss-note-tone-amber{color:#f5b53d;}
+.ausboss-note-tone-glow{color:#a8fff5;text-shadow:0 0 7px #00b4aa95,0 0 15px #00b4aa45;}
+.ausboss-note-mdtools{display:flex;align-items:center;flex-wrap:wrap;gap:4px;}
+.ausboss-note-mdtools button{height:24px;padding:0 9px;border:1px solid #344649;border-radius:4px;background:#101819;font:600 12px/1 "IBM Plex Sans",system-ui,sans-serif;cursor:pointer;}
+.ausboss-note-mdtools button:hover{border-color:#6a928e;}
+.ausboss-note-mdpreview{border:1px solid #344649;border-radius:6px;padding:7px 10px;}
+.ausboss-note-mdpreview summary{cursor:pointer;color:#9fcec9;}
+.ausboss-note-mdpreview[open] summary{margin-bottom:10px;}
+.ausboss-note.is-banner .ausboss-note-head{padding:14px 40px 14px 18px;}
+.ausboss-note.is-banner .ausboss-note-title{font-size:28px;}
+.ausboss-note-edit{position:absolute;top:8px;right:8px;width:24px;height:24px;border:1px solid transparent;border-radius:5px;background:transparent;color:#78908e;font-size:13px;line-height:1;cursor:pointer;pointer-events:auto;}
+.ausboss-note-edit:hover{border-color:#3a4047;background:#23272c;color:#fff;}
+.ausboss-note-empty{padding:14px 16px 4px;color:#78908e;font-size:11.5px;line-height:1.4;}
+.ausboss-note-section{padding:8px 16px 0;}
+.ausboss-note-section + .ausboss-note-section{margin-top:6px;border-top:1px solid rgba(255,255,255,.06);padding-top:10px;}
+.ausboss-note-h{display:flex;align-items:center;gap:8px;margin:0 0 6px;color:#78908e;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;}
+.ausboss-note-h .spacer{flex:1 1 auto;}
+.ausboss-note-mini{height:18px;padding:0 7px;border:1px solid #3a4047;border-radius:4px;background:#23272c;color:#9ba2aa;font:10px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:.04em;text-transform:none;cursor:pointer;pointer-events:auto;}
+.ausboss-note-mini:hover{border-color:var(--accent);color:#fff;}
+.ausboss-note-body{user-select:text;-webkit-user-select:text;cursor:text;}
+.ausboss-note-body p{margin:0 0 7px;overflow-wrap:anywhere;}
+.ausboss-note-body h1,.ausboss-note-body h2,.ausboss-note-body h3{margin:8px 0 5px;color:#eaf4f3;font-weight:700;line-height:1.25;}
+.ausboss-note-body h1{font-size:16px;}
+.ausboss-note-body h2{font-size:14px;}
+.ausboss-note-body h3{font-size:12.5px;text-transform:uppercase;letter-spacing:.06em;color:#a9c4c2;}
+.ausboss-note-body ul,.ausboss-note-body ol{margin:0 0 7px;padding-left:20px;}
+.ausboss-note-body li{margin:2px 0;overflow-wrap:anywhere;}
+.ausboss-note-body hr{margin:8px 0;border:0;border-top:1px solid rgba(255,255,255,.08);}
+.ausboss-note-body code{padding:1px 4px;border-radius:3px;background:rgba(255,255,255,.08);font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e6f4f3;}
+.ausboss-note-body pre{margin:0 0 7px;padding:7px 9px;overflow-x:auto;border-radius:5px;background:rgba(0,0,0,.35);font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e6f4f3;white-space:pre;}
+.ausboss-note-reader .ausboss-note-body pre,.ausboss-note-reader .ausboss-note-body pre code{white-space:pre-wrap;overflow-wrap:anywhere;}
+.ausboss-note-body a,.ausboss-note-link{color:var(--accent);text-decoration:none;pointer-events:auto;}
+.ausboss-note-body a:hover,.ausboss-note-link:hover{text-decoration:underline;}
+.ausboss-note-folder{margin:8px 0 4px;color:#a9c4c2;font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+.ausboss-note-folder:first-child{margin-top:0;}
+.ausboss-note-row{display:flex;align-items:center;gap:8px;min-height:30px;padding:3px 0;}
+.ausboss-note-dot{flex:none;width:8px;height:8px;border-radius:50%;background:#4b5a5a;}
+.ausboss-note-dot.checking{background:#4b5a5a;animation:ausboss-note-pulse 1s ease-in-out infinite;}
+.ausboss-note-dot.ok{background:var(--accent);box-shadow:0 0 5px rgba(0,180,170,.55);}
+.ausboss-note-dot.missing{background:#e0564b;box-shadow:0 0 5px rgba(224,86,75,.5);}
+.ausboss-note-dot.unknown{background:#4b5a5a;}
+@keyframes ausboss-note-pulse{0%,100%{opacity:.35;}50%{opacity:1;}}
+.ausboss-note-file{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px;}
+.ausboss-note-name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#e6f4f3;font:11.5px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;pointer-events:auto;cursor:copy;}
+.ausboss-note-meta{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#78908e;font-size:10.5px;}
+.ausboss-note-file .ausboss-note-meta{white-space:normal;overflow-wrap:anywhere;line-height:1.35;}
+.ausboss-note-dl{flex:none;display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border:1px solid var(--accent);border-radius:5px;background:rgba(0,180,170,.14);color:#e6f4f3;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap;pointer-events:auto;cursor:pointer;}
+.ausboss-note-dl:hover{background:var(--accent);color:#08211f;}
+.ausboss-note-dl .size{font-weight:400;opacity:.8;}
+.ausboss-note-pill{flex:none;display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:11px;background:rgba(0,180,170,.16);color:#9fe3dc;font-size:10.5px;white-space:nowrap;}
+.ausboss-note-pill.missing{background:rgba(224,86,75,.16);color:#f0a59e;}
+.ausboss-note-pill.elsewhere{background:rgba(255,196,107,.14);color:#ffd79a;}
+.ausboss-note-action{flex:none;display:inline-flex;align-items:center;gap:6px;}
+.ausboss-note-use{flex:none;height:22px;padding:0 9px;border:1px solid #ffc46b;border-radius:5px;background:rgba(255,196,107,.12);color:#ffe3b0;font:600 11px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer;pointer-events:auto;}
+.ausboss-note-use:hover{background:#ffc46b;color:#2a1d05;}
+.ausboss-note-pill a{color:inherit;text-decoration:none;pointer-events:auto;}
+.ausboss-note-pill a:hover{text-decoration:underline;}
+.ausboss-note-chips{display:flex;flex-wrap:wrap;gap:6px;}
+.ausboss-note-chip{display:inline-flex;align-items:center;height:24px;padding:0 10px;border:1px solid #3a4047;border-radius:12px;background:#23272c;color:#d7dde2;font-size:11px;text-decoration:none;white-space:nowrap;pointer-events:auto;}
+.ausboss-note-chip:hover{border-color:var(--accent);color:#fff;}
+/* editor dialog */
+.ausboss-note-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);}
+.ausboss-note-dialog{display:flex;flex-direction:column;width:min(860px,94vw);max-height:92vh;border:1px solid #3a4047;border-radius:9px;background:#1c1f23;box-shadow:0 12px 40px rgba(0,0,0,.6);color:#d7dde2;font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+.ausboss-note-dialog *{box-sizing:border-box;}
+.ausboss-note-dhead{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid #2c3238;color:${BRAND};font-weight:600;}
+.ausboss-note-dhead .spacer{flex:1 1 auto;}
+.ausboss-note-dbody{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:12px;}
+.ausboss-note-dfoot{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid #2c3238;}
+.ausboss-note-dfoot .spacer{flex:1 1 auto;}
+.ausboss-note-field{display:flex;flex-direction:column;gap:4px;}
+.ausboss-note-field > label{color:#9ba2aa;font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;}
+.ausboss-note-field .hint{color:#78908e;font-size:10.5px;}
+.ausboss-note-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.ausboss-note-dialog input,.ausboss-note-dialog textarea,.ausboss-note-dialog select{width:100%;padding:5px 8px;border:1px solid #3a4047;border-radius:5px;background:#23272c;color:#e6f4f3;font:12px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;outline:none;}
+.ausboss-note-dialog textarea{min-height:120px;resize:vertical;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+.ausboss-note-dialog textarea.json{min-height:320px;}
+.ausboss-note-dialog input:focus,.ausboss-note-dialog textarea:focus,.ausboss-note-dialog select:focus{border-color:${BRAND};}
+.ausboss-note-table{display:flex;flex-direction:column;gap:4px;}
+.ausboss-note-trow{display:grid;gap:6px;align-items:center;}
+.ausboss-note-trow.models{grid-template-columns:minmax(120px,1.5fr) 130px 70px minmax(100px,1fr) minmax(100px,1fr) 24px;}
+.ausboss-note-trow.packs{grid-template-columns:minmax(120px,1fr) minmax(120px,1.4fr) minmax(120px,1fr) 24px;}
+.ausboss-note-trow.links{grid-template-columns:minmax(120px,1fr) minmax(120px,2fr) 24px;}
+.ausboss-note-trow.head{color:#78908e;font-size:10px;letter-spacing:.06em;text-transform:uppercase;}
+.ausboss-note-x{width:24px;height:24px;padding:0;border:1px solid transparent;border-radius:5px;background:transparent;color:#9ba2aa;cursor:pointer;}
+.ausboss-note-x:hover{border-color:#3a4047;color:#fff;}
+.ausboss-note-btn{height:26px;padding:0 10px;border:1px solid #3a4047;border-radius:5px;background:#23272c;color:#d7dde2;font:12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer;}
+.ausboss-note-btn:hover{border-color:${BRAND};color:#fff;}
+.ausboss-note-btn.primary{border-color:${BRAND};background:${BRAND};color:#08211f;font-weight:600;}
+.ausboss-note-btn.primary:hover{background:#19c9be;}
+.ausboss-note-seg{display:inline-flex;border:1px solid #3a4047;border-radius:5px;overflow:hidden;}
+.ausboss-note-seg button{height:26px;padding:0 10px;border:none;background:#23272c;color:#9ba2aa;font:12px/1 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:pointer;}
+.ausboss-note-seg button + button{border-left:1px solid #3a4047;}
+.ausboss-note-seg button.on{background:${BRAND};color:#08211f;font-weight:600;}
+.ausboss-note-error{color:#f0a59e;font-size:11px;}
+`;
+  document.head.appendChild(style);
+}
+
+// ---------------------------------------------------------------------------
+// DOM helpers
+// ---------------------------------------------------------------------------
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function tileIcon(note) {
+  // A how-to can include models too. Only use the download icon for a
+  // download title or a note whose only content is its model list.
+  const downloads = /^(?:download models?|model downloads?|downloads?|models?)$/i.test(note.title.trim())
+    || (note.models.length > 0 && !note.body.trim() && !note.packs.length && !note.links.length);
+  const ns = "http://www.w3.org/2000/svg";
+  const icon = document.createElementNS(ns, "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(ns, "path");
+  path.setAttribute("d", downloads
+    ? "M12 3v12m-5-5 5 5 5-5M3 16v5h18v-5"
+    : "M2.5 4.5c3.5-1 6.5-.5 9.5 1.5 3-2 6-2.5 9.5-1.5v15c-3.5-1-6.5-.5-9.5 1.5-3-2-6-2.5-9.5-1.5zM12 6v15");
+  icon.append(path);
+  return icon;
+}
+
+function externalLink(url, className, text) {
+  const link = el("a", className, text);
+  link.href = url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  // A click on a link must not become a node drag.
+  link.addEventListener("pointerdown", (event) => event.stopPropagation());
+  return link;
+}
+
+function spansInto(parent, spans) {
+  for (const span of spans) {
+    if (span.type === "br") parent.append(document.createElement("br"));
+    else if (span.type === "strong") parent.append(el("strong", "", span.text));
+    else if (span.type === "em") parent.append(el("em", "", span.text));
+    else if (span.type === "code") parent.append(el("code", "", span.text));
+    else if (span.type === "tone") parent.append(el("span", `ausboss-note-tone-${span.tone}`, span.text));
+    else if (span.type === "link") parent.append(externalLink(span.url, "", span.text));
+    else parent.append(document.createTextNode(span.text));
+  }
+}
+
+function markdownInto(parent, text) {
+  for (const block of parseMarkdown(text)) {
+    if (block.type === "heading") {
+      const heading = el(`h${block.level}`);
+      spansInto(heading, block.spans);
+      parent.append(heading);
+    } else if (block.type === "table") {
+      const wrap = el("div", "ausboss-note-table-scroll");
+      const grid = el("table");
+      const addRow = (group, cells, header) => {
+        const row = group.insertRow();
+        cells.forEach((spans, index) => {
+          const cell = el(header ? "th" : "td");
+          if (header) cell.scope = "col";
+          cell.style.textAlign = block.align[index];
+          spansInto(cell, spans);
+          row.append(cell);
+        });
+      };
+      addRow(grid.createTHead(), block.headers, true);
+      const rows = grid.createTBody();
+      for (const cells of block.rows) addRow(rows, cells, false);
+      wrap.append(grid);
+      parent.append(wrap);
+    } else if (block.type === "list") {
+      const list = el(block.ordered ? "ol" : "ul");
+      for (const item of block.items) {
+        const li = el("li");
+        spansInto(li, item);
+        list.append(li);
+      }
+      parent.append(list);
+    } else if (block.type === "hr") parent.append(el("hr"));
+    else if (block.type === "code") parent.append(el("pre", "", block.text));
+    else {
+      const paragraph = el("p");
+      spansInto(paragraph, block.spans);
+      parent.append(paragraph);
+    }
+  }
+}
+
+async function copyText(text, element) {
+  const copied = await copyToClipboard(text);
+  // A blocked clipboard says so; the name is still on screen to copy by hand.
+  const note = copied ? "copied" : "复制被拦下";
+  const before = element.textContent;
+  element.textContent = note;
+  setTimeout(() => { if (element.textContent === note) element.textContent = before; }, copied ? 700 : 1400);
+}
+
+// ---------------------------------------------------------------------------
+// The card
+// ---------------------------------------------------------------------------
+
+function setDot(dot, status, title) {
+  dot.className = `ausboss-note-dot ${status}`;
+  dot.title = title ?? "";
+}
+
+function modelRow(state, row) {
+  const line = el("div", "ausboss-note-row");
+  const dot = el("span", "ausboss-note-dot checking");
+  const file = el("div", "ausboss-note-file");
+  const name = el("div", "ausboss-note-name", row.name);
+  name.title = `${row.name} - 点击复制文件名`;
+  name.addEventListener("pointerdown", (event) => event.stopPropagation());
+  name.addEventListener("click", () => copyText(row.name, name));
+  file.append(name);
+  const metaBits = [];
+  if (row.note) metaBits.push(row.note);
+  const meta = el("div", "ausboss-note-meta", metaBits.join(" · "));
+  if (metaBits.length) file.append(meta);
+  const action = el("span", "ausboss-note-action");
+  line.append(dot, file, action);
+
+  const showDownload = () => {
+    action.textContent = "";
+    if (row.url) {
+      const button = externalLink(row.url, "ausboss-note-dl", "");
+      button.append(document.createTextNode("Download"));
+      if (row.size) button.append(el("span", "size", row.size));
+      button.title = `Opens ${hostLabel(row.url) || row.url} 在新标签页打开`;
+      action.append(button);
+    } else if (row.size) {
+      action.append(el("span", "ausboss-note-meta", row.size));
+    }
+  };
+  const showInstalled = (path) => {
+    action.textContent = "";
+    const pill = el("span", "ausboss-note-pill");
+    pill.append(document.createTextNode("✓ installed"));
+    if (row.url) {
+      const link = externalLink(row.url, "", "↗");
+      link.title = `来源：${hostLabel(row.url) || row.url}`;
+      pill.append(link);
+    }
+    pill.title = path ? `找到：${path}` : "已找到";
+    action.append(pill);
+  };
+  // The file is here, but in a subfolder, and a loader still asks for the
+  // bare name: ComfyUI marks that loader red. Use it points the loaders at
+  // the copy that was found. LoRA Loader rows get the same button: that
+  // loader finds the file by its name when it runs, and the row then holds
+  // the real path.
+  const showElsewhere = (path, loaders, loraRows = [], files = []) => {
+    action.textContent = "";
+    const folder = subfolderOf(path);
+    const pill = el("span", "ausboss-note-pill elsewhere", `在 ${folder}/ 下`);
+    const asking = [...loaders, ...loraRows];
+    const names = [...new Set(asking.map((entry) => entry.node.title || entry.node.type))].join(", ");
+    pill.title = loaders.length
+      ? `实际路径为 ${path}, but ${names} ${asking.length === 1 ? "asks" : "ask"} for ${row.name}，但 ComfyUI 找不到它。`
+      : `实际路径为 ${path}. ${names} still ${asking.length === 1 ? "has" : "have"} 把它记作 ${row.name} 这个名字，按名字也能找得到。`;
+    const use = el("button", "ausboss-note-use", "用它");
+    use.type = "button";
+    use.title = `把 ${names} 指向 ${path}。`;
+    use.addEventListener("pointerdown", (event) => event.stopPropagation());
+    use.addEventListener("click", () => {
+      for (const entry of loaders) {
+        commitWidgetValue(entry.node, entry.widget, listedSpelling(path, entry.options), app.canvas);
+        entry.node.setDirtyCanvas?.(true, true);
+      }
+      const stacks = new Map();
+      for (const entry of loraRows) stacks.set(entry.widget, [...(stacks.get(entry.widget) ?? []), entry]);
+      for (const [widget, entries] of stacks) {
+        const rows = parseRows(widget.value);
+        for (const entry of entries) {
+          if (rows[entry.index]) rows[entry.index] = { ...rows[entry.index], name: listedSpelling(path, files) };
+        }
+        commitWidgetValue(entries[0].node, widget, serializeRows(rows), app.canvas);
+        entries[0].node.setDirtyCanvas?.(true, true);
+      }
+      app.graph?.setDirtyCanvas?.(true, true);
+      notifyAusbossChange();
+      checkModels(state, false);
+    });
+    action.append(pill, use);
+  };
+  showDownload();
+  state.rows.push({ row, dot, showDownload, showInstalled, showElsewhere });
+  return line;
+}
+
+function packRow(state, row) {
+  const line = el("div", "ausboss-note-row");
+  const dot = el("span", "ausboss-note-dot unknown");
+  const file = el("div", "ausboss-note-file");
+  const name = el("div", "ausboss-note-name", row.name);
+  name.style.cursor = "default";
+  file.append(name);
+  const action = el("span");
+  line.append(dot, file, action);
+  const installed = row.node ? nodeTypeRegistered(row.node) : null;
+  if (installed === true) {
+    setDot(dot, "ok", `${row.node} 已在本机注册`);
+    const pill = el("span", "ausboss-note-pill", "✓ installed");
+    if (row.url) {
+      const link = externalLink(row.url, "", "↗");
+      link.title = row.url;
+      pill.append(link);
+    }
+    action.append(pill);
+  } else {
+    setDot(dot, installed === false ? "missing" : "unknown",
+      installed === false ? `${row.node} 在本机没有注册 - 装一下这个节点包` : "没设置探测节点，所以这一行不检查");
+    if (row.url) {
+      const button = externalLink(row.url, "ausboss-note-dl", installed === false ? "获取" : "Open");
+      button.title = row.url;
+      action.append(button);
+    } else if (installed === false) {
+      action.append(el("span", "ausboss-note-pill missing", "missing"));
+    }
+  }
+  return line;
+}
+
+function sectionHeading(text) {
+  const heading = el("div", "ausboss-note-h");
+  heading.append(el("span", "", text), el("span", "spacer"));
+  return heading;
+}
+
+// The frontend hangs a "which pack" badge above every custom node. On a
+// banner - a title label for a column or stage - it floats in space, so
+// the banner layout hides it and the card layout puts it back.
+function setBadgesHidden(node, hidden) {
+  if (hidden === Boolean(node.__ausbossBadgesHidden)) return;
+  try {
+    if (hidden) {
+      node.__ausbossBadgeStash = node.badges;
+      Object.defineProperty(node, "badges", { configurable: true, get: () => [], set: () => {} });
+    } else {
+      delete node.badges;
+      node.badges = node.__ausbossBadgeStash ?? [];
+    }
+    node.__ausbossBadgesHidden = hidden;
+  } catch {
+    // A frozen node keeps its badge; nothing else depends on this.
+  }
+}
+
+function render(state) {
+  const { note } = state;
+  const root = state.root;
+  root.classList.toggle("is-banner", note.layout === "banner");
+  root.classList.toggle("is-tile", note.layout === "tile" && !noteIsEmpty(note));
+  setTileFace(state.node, root, root.classList.contains("is-tile"));
+  setBadgesHidden(state.node, note.layout !== "card" && !noteIsEmpty(note));
+  root.style.setProperty("--accent", note.accent || BRAND);
+  const scroll = state.scroll;
+  scroll.textContent = "";
+  state.rows = [];
+
+  const head = el("div", "ausboss-note-head");
+  head.append(el("h1", "ausboss-note-title", note.title || "未命名工作流"));
+  if (note.subtitle) head.append(el("p", "ausboss-note-subtitle", note.subtitle));
+  if (note.author) head.append(el("p", "ausboss-note-author", `作者 ${note.author}`));
+  const edit = el("button", "ausboss-note-edit", "✎");
+  edit.type = "button";
+  edit.title = "编辑这条说明";
+  edit.addEventListener("pointerdown", (event) => event.stopPropagation());
+  edit.addEventListener("click", () => openEditor(state));
+  head.append(edit);
+  scroll.append(head);
+
+  if (noteIsEmpty(note)) {
+    scroll.append(el("div", "ausboss-note-empty",
+      "点 ✎ 给这个工作流加上标题、使用说明、需要的模型和下载链接，以及你自己的链接。"));
+    state.domWidget.options.getMinHeight = () => CARD_MIN_HEIGHT + WIDGET_FRAME;
+    return;
+  }
+  if (note.layout === "tile") {
+    const read = el("button", "ausboss-note-read");
+    read.append(tileIcon(note), el("span", "", note.title || "工作流信息"));
+    read.type = "button";
+    read.setAttribute("aria-haspopup", "dialog");
+    read.onclick = () => {
+      const dialog = el("dialog", "ausboss-note-reader");
+      dialog.setAttribute("aria-label", note.title || "工作流信息");
+      dialog.style.setProperty("--accent", note.accent || BRAND);
+      const close = compactAction("Close");
+      close.onclick = () => dialog.close();
+      const editNote = compactAction("Edit", "编辑这条说明");
+      editNote.onclick = () => {
+        dialog.close();
+        openEditor(state);
+      };
+      const header = el("header", "ausboss-note-reader-head");
+      header.append(close, editNote, el("h2", "", note.title || "工作流信息"));
+      if (note.subtitle) header.append(el("p", "", note.subtitle));
+      if (note.author) header.append(el("p", "", `作者 ${note.author}`));
+      dialog.append(header);
+      renderSections({ note, rows: [] }, dialog);
+      closeOnBackdropClick(dialog);
+      document.body.append(dialog);
+      state.reader = dialog;
+      dialog.addEventListener("close", () => {
+        dialog.remove();
+        state.reader = null;
+        if (!openDialog) read.focus();
+      }, {once:true});
+      dialog.showModal();
+    };
+    head.replaceChildren(read, edit);
+    state.domWidget.options.getMinHeight = () => 42 + WIDGET_FRAME;
+    return;
+  }
+  if (note.layout === "banner") {
+    state.domWidget.options.getMinHeight = () => BANNER_MIN_HEIGHT + WIDGET_FRAME;
+    return;
+  }
+  state.domWidget.options.getMinHeight = () => CARD_MIN_HEIGHT + WIDGET_FRAME;
+
+  renderSections(state, scroll);
+}
+
+function renderSections(state, scroll) {
+  const { note } = state;
+  if (note.body.trim()) {
+    const section = el("div", "ausboss-note-section");
+    const body = el("div", "ausboss-note-body");
+    body.addEventListener("pointerdown", (event) => event.stopPropagation());
+    markdownInto(body, note.body);
+    section.append(body);
+    scroll.append(section);
+  }
+
+  if (note.models.length) {
+    const section = el("div", "ausboss-note-section");
+    const heading = sectionHeading("Models");
+    const recheck = el("button", "ausboss-note-mini", "↻ 重新检查文件");
+    recheck.type = "button";
+    recheck.title = "再找一遍每个文件（把文件移进来之后，或按 R 之后）";
+    recheck.addEventListener("pointerdown", (event) => event.stopPropagation());
+    recheck.addEventListener("click", () => checkModels(state, true));
+    heading.append(recheck);
+    section.append(heading);
+    for (const group of groupModels(note.models)) {
+      section.append(el("div", "ausboss-note-folder", `📂 ${group.path}`));
+      for (const row of group.rows) section.append(modelRow(state, row));
+    }
+    scroll.append(section);
+  }
+
+  if (note.packs.length) {
+    const section = el("div", "ausboss-note-section");
+    section.append(sectionHeading("节点包"));
+    for (const row of note.packs) section.append(packRow(state, row));
+    scroll.append(section);
+  }
+
+  if (note.links.length) {
+    const section = el("div", "ausboss-note-section");
+    section.append(sectionHeading("Links"));
+    const chips = el("div", "ausboss-note-chips");
+    for (const row of note.links) {
+      if (row.url) chips.append(externalLink(row.url, "ausboss-note-chip", row.label));
+      else chips.append(el("span", "ausboss-note-chip", row.label));
+    }
+    section.append(chips);
+    scroll.append(section);
+  }
+
+  checkModels(state, false);
+}
+
+async function checkModels(state, fresh) {
+  const generation = (state.checkGeneration = (state.checkGeneration || 0) + 1);
+  const rows = state.rows;
+  for (const entry of rows) setDot(entry.dot, "checking", "checking…");
+  const byDir = new Map();
+  for (const entry of rows) {
+    const dir = entry.row.dir;
+    if (!byDir.has(dir)) byDir.set(dir, []);
+    byDir.get(dir).push(entry);
+  }
+  await Promise.all([...byDir.entries()].map(async ([dir, entries]) => {
+    if (!dir) {
+      for (const entry of entries) setDot(entry.dot, "unknown", "没设置文件夹，所以这个文件不检查");
+      return;
+    }
+    if (dir === INPUT_FOLDER) {
+      await Promise.all(entries.map(async (entry) => {
+        const found = await inputExists(entry.row.name);
+        if (generation !== state.checkGeneration) return;
+        if (found) {
+          setDot(entry.dot, "ok", "在 ComfyUI/input 里找到了");
+          entry.showInstalled(`input/${entry.row.name}`);
+        } else {
+          setDot(entry.dot, "missing", "ComfyUI/input 里还没有");
+          entry.showDownload();
+        }
+      }));
+      return;
+    }
+    const files = await listFolder(dir, fresh);
+    if (generation !== state.checkGeneration) return;
+    for (const entry of entries) {
+      if (files === null) {
+        setDot(entry.dot, "unknown", `本机没有 "${dir}" 模型文件夹，所以这个文件不检查`);
+        entry.showDownload();
+        continue;
+      }
+      const match = matchInstalled(entry.row.name, files);
+      const elsewhere = match.found && subfolderOf(match.path);
+      const loaders = elsewhere ? loadersNeeding(entry.row.name, match.path, graphListWidgets()) : [];
+      const loraRows = elsewhere ? loraRowsNeeding(entry.row.name, match.path, graphLoraLoaders(), files) : [];
+      if (match.found && (loaders.length || loraRows.length)) {
+        setDot(entry.dot, "ok", `在 ${subfolderOf(match.path)}/: ${match.path}`);
+        entry.showElsewhere(match.path, loaders, loraRows, files);
+      } else if (match.found) {
+        setDot(entry.dot, "ok", `Found: ${match.path}`);
+        entry.showInstalled(match.path);
+      } else {
+        setDot(entry.dot, "missing", `在 ComfyUI/models/ 里没找到 ${dir}`);
+        entry.showDownload();
+      }
+    }
+  }));
+  if (state.domWidget && generation === state.checkGeneration) fitNote(state);
+}
+
+// ---------------------------------------------------------------------------
+// Fitting the node to the card (classic canvas)
+// ---------------------------------------------------------------------------
+
+// Nodes 2.0 sizes the node to the card by itself; the classic canvas keeps
+// whatever height the workflow saved.
+function classicCanvas() {
+  return globalThis.LiteGraph?.vueNodesMode !== true;
+}
+
+// The card's natural height at a given width. For one read the card takes
+// that width and drops its 100% heights, so the content lays out at full
+// size with no scrollbar narrowing it; everything goes back before anything
+// is painted. The width is the node's, not the frame's: the frame can still
+// be a few pixels wide in the moment after it first appears.
+function naturalHeight(state, width) {
+  const { root, card } = state;
+  root.style.width = `${width}px`;
+  root.style.height = "auto";
+  card.style.height = "auto";
+  const height = parseFloat(getComputedStyle(root).height);
+  root.style.width = "";
+  root.style.height = "";
+  card.style.height = "";
+  return Number.isFinite(height) && height > 0 ? height : null;
+}
+
+// Grow the node until the card shows everything, and remember that height
+// as the node's floor. It never shrinks the node: a taller note keeps its
+// empty space until someone drags it shorter.
+function fitNote(state) {
+  if (!classicCanvas()) return;
+  // A tile face is a button, not a card: fitting it would measure the note
+  // behind the button and grow a new tile straight back to full height.
+  if (noteShowsTileFace(state.note)) {
+    state.fitHeight = undefined;
+    return;
+  }
+  const { node, root, domWidget } = state;
+  const width = node.size[0] - WIDGET_FRAME;
+  if (!(width > 0)) return;
+  let natural;
+  if (root.isConnected) natural = naturalHeight(state, width);
+  else {
+    // Not on the canvas yet - a workflow is loading. Lay the card out off
+    // screen instead.
+    const host = el("div");
+    host.style.cssText = "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;";
+    host.append(root);
+    document.body.append(host);
+    natural = naturalHeight(state, width);
+    root.remove();
+    host.remove();
+  }
+  const top = Number.isFinite(domWidget.computedHeight) && Number.isFinite(domWidget.y) ? domWidget.y : PANEL_TOP;
+  const { fit, grow } = noteFit({ natural, nodeHeight: node.size[1], chrome: top + WIDGET_FRAME });
+  if (fit === null) return;
+  state.fitHeight = fit;
+  if (grow) {
+    node.setSize([node.size[0], fit]);
+    node.setDirtyCanvas?.(true, true);
+  }
+}
+
+// Every list widget in the graph, subgraphs included: the loaders a found
+// file could be handed to. Local only - the graph already holds each
+// loader's choices, as ComfyUI's own server listed them.
+function graphListWidgets() {
+  const out = [];
+  const seen = new Set();
+  const walk = (graph) => {
+    if (!graph || seen.has(graph)) return;
+    seen.add(graph);
+    for (const node of graph._nodes ?? graph.nodes ?? []) {
+      for (const widget of node.widgets ?? []) {
+        if (widget?.type !== "combo" || typeof widget.value !== "string") continue;
+        out.push({ node, widget, value: widget.value, options: comboValues(widget) });
+      }
+      if (node.subgraph) walk(node.subgraph);
+    }
+  };
+  walk(app.rootGraph ?? app.graph);
+  return out;
+}
+
+// Every LoRA Loader in the graph, subgraphs included, with its rows. Its
+// file names sit in the rows' text, not in a list widget.
+function graphLoraLoaders() {
+  const out = [];
+  const seen = new Set();
+  const walk = (graph) => {
+    if (!graph || seen.has(graph)) return;
+    seen.add(graph);
+    for (const node of graph._nodes ?? graph.nodes ?? []) {
+      if (node.type === "AUSBOSS_NODES_LoraLoader") {
+        const widget = node.widgets?.find((item) => item.name === "loras");
+        if (widget && typeof widget.value === "string") out.push({ node, widget, rows: parseRows(widget.value) });
+      }
+      if (node.subgraph) walk(node.subgraph);
+    }
+  };
+  walk(app.rootGraph ?? app.graph);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// The editor dialog
+// ---------------------------------------------------------------------------
+
+let openDialog = null;
+
+function closeEditor() {
+  if (!openDialog) return;
+  openDialog.abort.abort();
+  openDialog.element.remove();
+  openDialog = null;
+}
+
+function field(labelText, control, hint) {
+  const wrap = el("div", "ausboss-note-field");
+  wrap.append(el("label", "", labelText), control);
+  if (hint) wrap.append(el("span", "hint", hint));
+  return wrap;
+}
+
+function input(value, placeholder) {
+  const box = el("input");
+  box.type = "text";
+  box.value = value ?? "";
+  if (placeholder) box.placeholder = placeholder;
+  return box;
+}
+
+function folderSelect(value, folders) {
+  const select = el("select");
+  const options = [...folders];
+  if (value && !options.includes(value)) options.push(value);
+  if (!options.includes("")) options.unshift("");
+  for (const folder of options) {
+    const option = el("option", "", folder || "(folder)");
+    option.value = folder;
+    select.append(option);
+  }
+  select.value = value ?? "";
+  return select;
+}
+
+// A small editable table. `columns` describes each cell; rows are plain
+// objects and `read()` returns them back as edited.
+function table(kind, columns, rows, makeRow) {
+  const box = el("div", "ausboss-note-table");
+  const head = el("div", `ausboss-note-trow ${kind} head`);
+  for (const column of columns) head.append(el("span", "", column));
+  head.append(el("span"));
+  box.append(head);
+  const body = el("div", "ausboss-note-table");
+  box.append(body);
+  const entries = [];
+  const add = (row) => {
+    const line = el("div", `ausboss-note-trow ${kind}`);
+    const controls = makeRow(row ?? {});
+    for (const control of controls) line.append(control);
+    const remove = el("button", "ausboss-note-x", "✕");
+    remove.type = "button";
+    remove.title = "删除这一行";
+    const entry = { line, controls };
+    remove.addEventListener("click", () => {
+      line.remove();
+      entries.splice(entries.indexOf(entry), 1);
+    });
+    line.append(remove);
+    body.append(line);
+    entries.push(entry);
+    return entry;
+  };
+  for (const row of rows) add(row);
+  return { box, add, entries };
+}
+
+async function openEditor(state) {
+  closeEditor();
+  ensureCss();
+  const folders = await knownFolders();
+  const folderOptions = [...new Set([...COMMON_FOLDERS, ...folders])];
+  const draft = normalizeNote(state.note);
+
+  const overlay = el("div", "ausboss-note-overlay");
+  const dialog = el("div", "ausboss-note-dialog");
+  const head = el("div", "ausboss-note-dhead");
+  head.append(el("span", "", "工作流说明"), el("span", "spacer"));
+  const jsonToggle = el("button", "ausboss-note-btn", "JSON");
+  jsonToggle.type = "button";
+  jsonToggle.title = "不用表单，直接改卡片的原始 JSON";
+  head.append(jsonToggle);
+  const body = el("div", "ausboss-note-dbody");
+  const foot = el("div", "ausboss-note-dfoot");
+  const error = el("span", "ausboss-note-error");
+  const cancel = el("button", "ausboss-note-btn", "Cancel");
+  cancel.type = "button";
+  const save = el("button", "ausboss-note-btn primary", "Save");
+  save.type = "button";
+  foot.append(error, el("span", "spacer"), cancel, save);
+  dialog.append(head, body, foot);
+  overlay.append(dialog);
+
+  // --- form ---------------------------------------------------------------
+  const form = el("div", "ausboss-note-dbody");
+  form.style.padding = "0";
+  form.style.overflow = "visible";
+  const title = input(draft.title, "Krea 2 Outpaint");
+  const subtitle = input(draft.subtitle, "一句话说明这个工作流做什么");
+  const author = input(draft.author, "你的名字");
+  const accent = input(draft.accent, "#00b4aa");
+  let layout = draft.layout;
+  const seg = el("div", "ausboss-note-seg");
+  const segButtons = LAYOUTS.map((option) => {
+    const button = el("button", option === layout ? "on" : "", ({ card: "Card", banner: "Banner", tile: "信息块" })[option]);
+    button.type = "button";
+    button.addEventListener("click", () => {
+      layout = option;
+      segButtons.forEach((other, index) => other.classList.toggle("on", LAYOUTS[index] === option));
+    });
+    seg.append(button);
+    return button;
+  });
+  const grid = el("div", "ausboss-note-grid");
+  grid.append(
+    field("Title", title),
+    field("Author", author),
+    field("Subtitle", subtitle),
+    field("Layout", seg, "横幅只显示标题。信息块点一下打开完整说明。"),
+    field("强调色", accent, "十六进制，如 #00b4aa；留空就用这个包自带的青色。"),
+  );
+  form.append(grid);
+
+  const bodyBox = el("textarea");
+  bodyBox.value = draft.body;
+  bodyBox.placeholder = "## 怎么用\n\n1. 载入图片\n2. 拖动扩边\n3. 排队运行\n\nMarkdown：# 标题、**粗体**、`code`、[链接](https://...)、- 列表";
+  form.append(field("使用说明（Markdown）", bodyBox,
+    "可以用管道表格，以及 [teal]文字[/teal]、[green]、[amber]、[glow]，标签要成对闭合。"));
+  const formatTools = el("div", "ausboss-note-mdtools");
+  formatTools.setAttribute("role", "group");
+  formatTools.setAttribute("aria-label", "给选中文字加格式，或插入表格");
+  for (const label of ["Teal", "Green", "Amber", "Glow", "Table"]) {
+    const tone = label.toLowerCase();
+    const isTable = tone === "table";
+    const button = el("button", isTable ? "" : `ausboss-note-tone-${tone}`, label);
+    button.type = "button";
+    button.title = isTable ? "插入 Markdown 表格" : `Apply ${label.toLowerCase()} 应用到所选文字`;
+    button.addEventListener("click", () => {
+      const { selectionStart: start, selectionEnd: end, value } = bodyBox;
+      if (isTable) {
+        const gap = start && !value.slice(0, start).endsWith("\n\n") ? "\n\n" : "";
+        bodyBox.setRangeText(gap + "| 设置 | 值 |\n| --- | --- |\n| 名称 | 值 |\n\n", start, start, "end");
+      } else {
+        const selection = value.slice(start, end) || "text";
+        // Each tag styles one line. A selection can span multiple paragraphs.
+        const styled = selection.split("\n").map(line => line ? `[${tone}]${line}[/${tone}]` : "").join("\n");
+        bodyBox.setRangeText(styled, start, end, "end");
+        if (start === end) bodyBox.setSelectionRange(start + tone.length + 2, start + tone.length + 2 + selection.length);
+      }
+      bodyBox.focus();
+      bodyBox.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    formatTools.append(button);
+  }
+  form.append(formatTools);
+  const preview = el("details", "ausboss-note-mdpreview");
+  const sample = el("div", "ausboss-note-body");
+  preview.append(el("summary", "", "预览格式"), sample);
+  const updatePreview = () => {
+    if (!preview.open) return;
+    sample.style.setProperty("--accent", accent.value || BRAND);
+    sample.replaceChildren();
+    markdownInto(sample, bodyBox.value);
+  };
+  preview.addEventListener("toggle", updatePreview);
+  bodyBox.addEventListener("input", updatePreview);
+  accent.addEventListener("input", updatePreview);
+  form.append(preview);
+
+  const models = table("models", MODEL_COLUMNS.map((column) => column.label), draft.models, (row) =>
+    MODEL_COLUMNS.map(({ key, placeholder }) => (key === "dir" ? folderSelect(row.dir, folderOptions) : input(row[key], placeholder))));
+  const modelTools = el("div");
+  const addModel = el("button", "ausboss-note-btn", "+ model");
+  addModel.type = "button";
+  addModel.addEventListener("click", () => models.add({ dir: "diffusion_models" }));
+  modelTools.append(addModel);
+  form.append(field("Models", models.box, "每一行在文件被找到之前都显示「下载」按钮（子文件夹也算）。备注以灰色显示在文件名下面。"), modelTools);
+
+  const packs = table("packs", ["Pack", "URL", "探测节点类名"], draft.packs, (row) => [
+    input(row.name, "ComfyUI-AusBoss"),
+    input(row.url, "https://github.com/ausboss/ComfyUI-AusBoss"),
+    input(row.node, "AUSBOSS_NODES_LoraLoader"),
+  ]);
+  const packTools = el("div");
+  packTools.style.display = "flex";
+  packTools.style.gap = "6px";
+  const addPack = el("button", "ausboss-note-btn", "+ pack");
+  addPack.type = "button";
+  addPack.addEventListener("click", () => packs.add({}));
+  const detect = el("button", "ausboss-note-btn", "从当前工作流检测");
+  detect.type = "button";
+  detect.title = "列出打开的工作流用到的所有自定义节点包";
+  detect.addEventListener("click", () => {
+    const types = collectGraphNodes(app.rootGraph ?? app.graph).map((node) => node.type);
+    const have = new Set(packs.entries.map((entry) => entry.controls[0].value.trim()));
+    for (const pack of packsFromGraph(types, moduleOfType)) {
+      if (have.has(pack.name)) continue;
+      packs.add(pack.name === "ComfyUI-AusBoss"
+        ? { ...pack, url: "https://github.com/ausboss/ComfyUI-AusBoss" }
+        : pack);
+    }
+  });
+  packTools.append(addPack, detect);
+  form.append(field("节点包", packs.box, "会用探测节点类名对一下本机装没装；找不到就把这个包标成缺失。"), packTools);
+
+  const links = table("links", ["Label", "URL"], draft.links, (row) => [
+    input(row.label, "GitHub"),
+    input(row.url, "https://github.com/ausboss"),
+  ]);
+  const linkTools = el("div");
+  const addLink = el("button", "ausboss-note-btn", "+ link");
+  addLink.type = "button";
+  addLink.addEventListener("click", () => links.add({}));
+  linkTools.append(addLink);
+  form.append(field("Links", links.box, "你的主页：GitHub、Civitai、YouTube、Discord…"), linkTools);
+
+  // --- raw JSON -------------------------------------------------------------
+  const jsonBox = el("textarea", "json");
+  let showingJson = false;
+
+  const readForm = () => normalizeNote({
+    title: title.value,
+    subtitle: subtitle.value,
+    author: author.value,
+    body: bodyBox.value,
+    layout,
+    accent: accent.value,
+    models: models.entries.map(({ controls }) => rowFromCells(MODEL_COLUMNS, controls.map((control) => control.value))),
+    packs: packs.entries.map(({ controls }) => ({
+      name: controls[0].value, url: controls[1].value, node: controls[2].value,
+    })),
+    links: links.entries.map(({ controls }) => ({ label: controls[0].value, url: controls[1].value })),
+  });
+
+  body.append(form);
+  jsonToggle.addEventListener("click", () => {
+    if (!showingJson) {
+      jsonBox.value = JSON.stringify(readForm(), null, 2);
+      body.textContent = "";
+      body.append(field("卡片 JSON", jsonBox, "就是存在工作流里的原文，点了保存才生效。"));
+      jsonToggle.textContent = "Form";
+    } else {
+      // Going back to the form discards JSON edits that did not parse.
+      try {
+        const parsed = normalizeNote(JSON.parse(jsonBox.value));
+        Object.assign(draft, parsed);
+        closeEditor();
+        state.note = parsed;
+        openEditor(state);
+        return;
+      } catch {
+        error.textContent = "这段 JSON 解析不了 - 改一下，或者点取消。";
+        return;
+      }
+    }
+    showingJson = !showingJson;
+  });
+
+  const commit = () => {
+    let next;
+    if (showingJson) {
+      try {
+        next = normalizeNote(JSON.parse(jsonBox.value));
+      } catch {
+        error.textContent = "这段 JSON 解析不了 - 改一下，或者点取消。";
+        return;
+      }
+    } else next = readForm();
+    const enteringTile = next.layout === "tile" && state.note.layout !== "tile";
+    state.note = next;
+    state.valueWidget.value = serializeNote(next);
+    closeEditor();
+    render(state);
+    if (enteringTile) {
+      state.fitHeight = undefined;
+      state.node.setSize?.([state.node.size[0], 80]);
+    }
+    fitNote(state);
+    state.node.setDirtyCanvas?.(true, true);
+    notifyAusbossChange();
+  };
+  // Every way out that is not Save asks first when the note changed, then
+  // drops the draft, including one carried over by the JSON/Form toggle.
+  const saved = () => JSON.stringify(normalizeNote(state.valueWidget.value));
+  const changed = () => {
+    if (!showingJson) return JSON.stringify(readForm()) !== saved();
+    try { return JSON.stringify(normalizeNote(JSON.parse(jsonBox.value))) !== saved(); } catch { return true; }
+  };
+  let asking = false;
+  const cancelEdits = async () => {
+    if (asking) return;
+    if (changed()) {
+      asking = true;
+      const discard = await confirmDiscard();
+      asking = false;
+      if (!discard) return;
+    }
+    state.note = normalizeNote(state.valueWidget.value);
+    closeEditor();
+  };
+  save.addEventListener("click", commit);
+  cancel.addEventListener("click", cancelEdits);
+
+  const abort = new AbortController();
+  // Keys typed into the dialog are the dialog's, not the canvas's shortcuts.
+  overlay.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (event.key === "Escape") void cancelEdits();
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) commit();
+  }, { signal: abort.signal });
+  overlay.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+    if (event.target === overlay) void cancelEdits();
+  }, { signal: abort.signal });
+  overlay.addEventListener("wheel", (event) => event.stopPropagation(), { signal: abort.signal });
+  document.body.append(overlay);
+  openDialog = { element: overlay, abort };
+  title.focus();
+}
+
+// ---------------------------------------------------------------------------
+// Node wiring
+// ---------------------------------------------------------------------------
+
+function buildPanel(node) {
+  if (node.__ausbossNote) return node.__ausbossNote;
+  ensureCss();
+  const widget = node.widgets?.find((item) => item.name === "note");
+  if (!widget) return null;
+  hideWidget(widget);
+  // A note never has output images of its own. The frontend files previews
+  // by node id, so one left over from another node can still land here, and
+  // in the classic canvas its widget asks for the picture's full height:
+  // the node grows to hold it and a tile stops starting as a tile.
+  suppressCoreImagePreview(node);
+
+  const root = el("div", "ausboss-note");
+  const card = el("div", "ausboss-note-card");
+  const scroll = el("div", "ausboss-note-scroll");
+  card.append(scroll);
+  root.append(card);
+  // Selecting text or scrolling the card must not read as a node drag; a
+  // press on empty card space still falls through to the canvas.
+  scroll.addEventListener("pointerdown", (event) => {
+    if (event.target !== scroll) event.stopPropagation();
+  });
+
+  const domWidget = node.addDOMWidget(WIDGET_NAME, "ausboss_workflow_note", root, {
+    serialize: false,
+    hideOnZoom: false,
+    getMinHeight: () => CARD_MIN_HEIGHT + WIDGET_FRAME,
+  });
+  keepDomWidgetWidthAuto(domWidget);
+  // Not saved with the workflow either: options.serialize only keeps it out
+  // of the prompt, and saved values come back by position.
+  domWidget.serialize = false;
+  fillNodeHeight(domWidget, {
+    minWidth: PANEL_MIN_WIDTH,
+    minHeight: () => (domWidget.options.getMinHeight?.() ?? CARD_MIN_HEIGHT + WIDGET_FRAME),
+    minNodeSize: [PANEL_MIN_WIDTH, 120],
+    exactMinWidth: true,
+  });
+
+  // valueWidget is the hidden STRING (the storage the editor writes
+  // through); domWidget is the panel the layout sizes.
+  const state = (node.__ausbossNote = {
+    node, domWidget, valueWidget: widget, root, card, scroll, rows: [],
+    note: normalizeNote(widget.value),
+  });
+  // Classic canvas: a corner drag stops where the card shows everything, and
+  // the card refits whenever its box changes (first shown, or the node made
+  // wider or narrower, which rewraps the text).
+  holdNodeMinHeight(node, () => (classicCanvas() ? state.fitHeight : undefined));
+  state.resizeObserver = new ResizeObserver(() => fitNote(state));
+  state.resizeObserver.observe(root);
+  render(state);
+  node.setSize?.([
+    Math.max(node.size?.[0] ?? 0, DEFAULT_SIZE[0]),
+    Math.max(node.size?.[1] ?? 0, DEFAULT_SIZE[1]),
+  ]);
+  return state;
+}
+
+app.registerExtension({
+  name: "AusBoss.WorkflowNote",
+  beforeRegisterNodeDef(nodeType, nodeData) {
+    if (!NOTE_TYPES.has(nodeData?.name)) return;
+    hideInputsInDef(nodeData, ["note"]);
+    chainCallback(nodeType.prototype, "onNodeCreated", function () {
+      buildPanel(this);
+      // A new tile starts as a button; onConfigure restores saved dimensions.
+      if (nodeData.name === "AUSBOSS_NODES_WorkflowNoteTile") this.setSize?.([380, 80]);
+    });
+    chainCallback(nodeType.prototype, "onSerialize", function (saved) {
+      const value = this.widgets?.find(widget => widget.name === "note")?.value;
+      serializeNoteIdentity(saved, normalizeNote(value).layout === "tile");
+    });
+    chainCallback(nodeType.prototype, "onConfigure", function (saved) {
+      // Saved widget values land after onNodeCreated: re-read them, and
+      // keep the saved size rather than the default the panel asked for.
+      // The fit runs before ComfyUI snapshots the opened workflow, so
+      // growing a note that was saved short does not mark it modified.
+      queueMicrotask(() => {
+        const state = buildPanel(this);
+        if (!state) return;
+        state.note = normalizeNote(state.valueWidget.value);
+        render(state);
+        if (state.note.layout === "tile" && Number.isFinite(saved?.size?.[1])) {
+          state.fitHeight = undefined;
+          this.setSize?.([this.size[0], saved.size[1]]);
+        }
+        fitNote(state);
+      });
+    });
+    chainCallback(nodeType.prototype, "getExtraMenuOptions", function (_canvas, options) {
+      const state = this.__ausbossNote;
+      if (!state || !Array.isArray(options)) return;
+      options.unshift({ content: "✎ 编辑工作流说明", callback: () => openEditor(state) }, null);
+    });
+    chainCallback(nodeType.prototype, "refreshComboInNode", function () {
+      const state = this.__ausbossNote;
+      if (state) checkModels(state, true);
+    });
+    chainCallback(nodeType.prototype, "onRemoved", function () {
+      closeEditor();
+      this.__ausbossNote?.reader?.close();
+      this.__ausbossNote?.resizeObserver?.disconnect();
+      this.__ausbossNote = null;
+    });
+  },
+});

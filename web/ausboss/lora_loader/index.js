@@ -1,0 +1,3337 @@
+import { api } from "../../../../scripts/api.js";
+import { app } from "../../../../scripts/app.js";
+import { BRAND, chainCallback, keepDomWidgetWidthAuto, notifyAusbossChange, showToast } from "../shared/index.mjs";
+import { WIDGET_FRAME, fillNodeHeight, holdVueNodeMinWidth } from "../shared/panel_layout.mjs";
+import { hideInputsInDef, hideWidget as collapseWidget } from "../shared/widget_visibility.mjs";
+import {
+  closeSettingsMenu,
+  gearIconSvg,
+  loadSettings,
+  openSettingsMenu,
+} from "../shared/settings_menu.mjs";
+import { makeScrubInput } from "../shared/scrub_input.mjs";
+import { isAppShortcut, keepKeyInField } from "../shared/canvas_passthrough.mjs";
+import { resetUnknownValues } from "../shared/widget_card_math.mjs";
+import { boxRowInputs, boxRowsWidget, boxesOf, hostBox, rowsInputName, workflowNodes } from "../shared/lora_box.mjs";
+import {
+  SETTINGS_PROPERTY as SWITCHES_PROPERTY, releaseStackGroup, releaseStackRow, renameStackGroup, stackGroupOwners, stackRowOwners,
+} from "../shared/workflow_switches.mjs";
+import {
+  BYPASS_MODE,
+  DEFAULT_STEP,
+  FINE_STEP,
+  MUTE_MODE,
+  STRENGTH_MAX,
+  STRENGTH_MIN,
+  appendFolderRows,
+  clampHighlight,
+  fitLoraLabel,
+  formatFileSize,
+  groupName,
+  groupNames,
+  groupRows,
+  hasGroupName,
+  hasTrigger,
+  MAX_GROUP_NAME,
+  applyTemplate,
+  cycleMasterToggle,
+  duplicateLoraKeys,
+  importNeedsSeparateStrengths,
+  importSummary,
+  isScrubbing,
+  loaderLoraEntries,
+  loraFolders,
+  loraPickerEntries,
+  loraStackKeyAction,
+  collectUpstreamLoaders,
+  collectDownstreamLoaders,
+  absorbChainIssue,
+  mergeImportedRows,
+  moveGroup,
+  moveHighlight,
+  moveRowInStack,
+  moveRowsToGroup,
+  newRow,
+  parseRows,
+  parseTemplates,
+  pickerWidth,
+  placeGroup,
+  placeRow,
+  removeTemplate,
+  renameGroup,
+  roundStrength,
+  resolveLoraName,
+  scrubValue,
+  serializeRows,
+  setGroupEnabled,
+  setGroupOff,
+  setStrength,
+  shortLoraName,
+  snapshotEnabled,
+  stackLayout,
+  strengthBarBackground,
+  strengthBarScale,
+  thumbPosition,
+  strengthOutOfRange,
+  summarizeRows,
+  templateFromRows,
+  toggleAllState,
+  toggleTrigger,
+  ungroupRows,
+  uniqueGroupName,
+  upsertTemplate,
+} from "../shared/lora_stack.mjs";
+import {
+  MAX_PICTURE_BYTES, civitaiButtonLabel, civitaiByHashUrl, civitaiFailureText, isCivitaiAddress,
+  parseCivitaiBody, pickCivitaiPicture, smallPictureUrl,
+} from "../shared/civitai_lookup.mjs";
+
+const NODE_CLASS = "AUSBOSS_NODES_LoraLoader";
+// A workflow saved by a 1.x release holds the panel's own empty value where
+// on_missing now sits (saved values come back by position); it loads as
+// "error", the node's default and what an API prompt without it runs with.
+const RESET_UNKNOWN = { on_missing: "error" };
+const ROW_HEIGHT = 30;
+const ROW_GAP = 6;
+const ACTIONS_HEIGHT = 26;
+const GROUP_HEIGHT = 36;
+const STACK_PADDING = 8;
+const BLANK_HEIGHT = 44;
+const PANEL_PADDING = 10;
+// How many of the slot band's pixels the panel climbs back up into. Three output slots reserve 66px of node height before the first
+// widget, and the band's whole middle is empty - so the control bar rides
+// there (like Pixaroma's controls do) and the row stack starts at the
+// band's bottom edge. 52 puts the 36px bar at y 24..60, clear of the title
+// and flush with the band.
+const BAND_RECLAIM = 52;
+// The one line that says where an inner loader's rows are set (see
+// rowsSource), and the Workflow Switches node that can own a row.
+const NOTE_HEIGHT = 16;
+// A group's header row, how far its LoRAs sit in, and the node property
+// that keeps which groups are folded.
+const HEADER_HEIGHT = 26;
+const GROUP_INDENT = 18;
+const FOLDED_PROPERTY = "ausbossLoraFolded";
+const SWITCHES_CLASS = "AUSBOSS_NODES_WorkflowSwitches";
+
+// Per-node-type preferences behind the gear button; persisted in
+// localStorage so they follow the user across workflows.
+const SETTINGS_SCOPE = "lora_loader";
+const SETTINGS_SCHEMA = [
+  {
+    key: "default_strength", label: "默认强度", type: "number",
+    default: 1, min: -10, max: 10, scrub: true, step: 0.05, fineStep: 0.01, decimals: 2,
+    hint: "新加入的 LoRA 从这个强度开始。",
+  },
+  {
+    key: "step", label: "强度步长", type: "number",
+    default: 0.05, min: 0.01, max: 1, scrub: true, step: 0.01, fineStep: 0.01, decimals: 2,
+    hint: "拖动和方向键的步长。按 Shift 始终按 0.01 步进。",
+  },
+  {
+    // persist:false - this mirrors THE OPEN NODE's linked state, so it must
+    // never become the stored default: new nodes always start unified. (An
+    // absorb can flip a node whose imported rows patch model and CLIP
+    // differently; that flip stays on that node.)
+    key: "separate_strengths", label: "模型 / CLIP 强度分开设置",
+    type: "toggle", default: false, persist: false,
+    hint: "这个节点每行显示两个强度框。新节点一律从"
+      + "统一模式开始。",
+  },
+  {
+    key: "strength_bars", label: "强度条", type: "toggle",
+    default: true,
+    hint: "每个名字后面有一条以 0 为中心的条：正值时青色向右延伸，"
+      + "负值时红色向左延伸，按整组"
+      + "最大的绝对值铺满整条（最小按 1.0 算）。",
+  },
+  {
+    key: "separator", label: "触发词分隔符", type: "text",
+    default: ", ", placeholder: '", "',
+    hint: "拼接 triggers 输出。只改这个节点，新节点以后再说。",
+  },
+  {
+    key: "strict_missing", label: "缺少 LoRA 时停止", type: "toggle",
+    default: true,
+    hint: "开（默认）：采样前发现某个已启用行的"
+      + "文件找不到，就直接报错并指出文件名。关：跳过那一行，"
+      + "只在控制台留一条警告，照常出图。只改这个节点，新节点以后再说。",
+  },
+  {
+    key: "hide_extension", label: "隐藏文件扩展名", type: "toggle",
+    default: true,
+    hint: "显示 LoRA 名称时不带 .safetensors。",
+  },
+  {
+    key: "hide_folders", label: "隐藏文件夹名", type: "toggle",
+    default: true,
+    hint: "每行只显示文件名；完整路径留在"
+      + "悬浮提示里，选择器里仍保留文件夹。",
+  },
+  {
+    key: "civitai_lookup", label: "Civitai 查询按钮", type: "toggle",
+    default: true,
+    hint: "在信息卡里提供一个「获取 Civitai 信息」按钮。点它会"
+      + "从这个浏览器向 civitai.com 查询这一个文件，并把"
+      + "结果存在 LoRA 旁边。你不点就不会发送任何内容。",
+  },
+  {
+    key: "civitai_picture", label: "Civitai 图片", type: "choice",
+    options: ["off", "PG-13", "any"], default: "PG-13",
+    hint: "获取 Civitai 信息时也会把这个 LoRA 的第一张图存到"
+      + "文件旁边，悬停 LoRA 就能看到。PG-13 会跳过 Civitai"
+      + "评为 R 及以上的图片。已有的图片不会被替换。",
+  },
+  {
+    key: "name_cut", label: "长名称", type: "choice",
+    options: ["end", "middle"], default: "end",
+    hint: "名字放不下时一行怎么缩短。middle 会保留"
+      + "结尾部分，checkpoint 编号（如 _000004000）通常在那里。",
+  },
+  {
+    key: "name_scrub", label: "在名字上拖动调强度", type: "toggle",
+    default: true,
+    hint: "在一行的名字上左右拖动可以改它的模型强度，"
+      + "强度条会跟着走。普通单击仍然打开选择器。",
+  },
+  {
+    key: "thumbnails", label: "预览缩略图", type: "toggle",
+    default: true,
+    hint: "悬停 LoRA 时在选择器旁显示封面图。",
+  },
+];
+// Narrowest node at which a row still works: toggle + picker + strength +
+// info + gaps + padding. Enforced through the DOM widget's layout minimum,
+// so the node cannot be resized to where the fixed-width row controls would
+// hang past the right edge. Separate model / CLIP strengths put a second
+// strength box and its gap on every row, so that mode's floor is wider by
+// as much, and the name keeps the same room.
+const PANEL_MIN_WIDTH = 320;
+const SEPARATE_EXTRA_WIDTH = 72;
+// The popups' font, shared with the picker's width measurement, and the
+// picker's side paddings, from which an option's text width is worked out.
+const POP_FONT = "12px system-ui";
+const LIST_PAD_X = 4;
+const OPTION_PAD_X = 8;
+
+function installStyles() {
+  if (document.getElementById("ausboss-lora-styles")) return;
+  const style = document.createElement("style");
+  style.id = "ausboss-lora-styles";
+  style.textContent = `
+  .ausboss-lora-panel, .ausboss-lora-panel *,
+  .ausboss-lora-pop, .ausboss-lora-pop *,
+  .ausboss-lora-hoverthumb { box-sizing: border-box; }
+  .ausboss-lora-panel { width: 100%; height: 100%;
+    font: 12px system-ui; color: #d7dde2; pointer-events: none; }
+  /* The body is the panel's layout box: it fences every child and carries
+     the overflow clip. height: 100% tracks whatever box the frontend
+     allocates, so a short allocation shrinks the stack instead of
+     chopping its bottom border. */
+  /* pointer-events: the panel overlays the slot band's middle (see
+     BAND_RECLAIM), so everything down to the body passes clicks through to
+     the canvas - slot dots stay wirable, empty band areas still drag the
+     node - and the three real surfaces opt back in below. The wrapper rule
+     needs !important because the frontend writes pointer-events: auto
+     inline on its own wrapper each frame; pointer-events does not inherit,
+     so the interactive children stay clickable regardless. */
+  .dom-widget:has(> .ausboss-lora-panel) { pointer-events: none !important; }
+  .ausboss-lora-body { display: flex; flex-direction: column; gap: ${ROW_GAP}px;
+    box-sizing: border-box; width: 100%; height: 100%; padding: ${PANEL_PADDING}px;
+    overflow: hidden; pointer-events: none; }
+  .ausboss-lora-bargroup, .ausboss-lora-stack,
+  .ausboss-lora-actions { pointer-events: auto; }
+  .ausboss-lora-row { flex: none; display: flex; align-items: center; gap: 6px; height: ${ROW_HEIGHT}px; }
+  .ausboss-lora-row:focus-visible { outline: 2px solid ${BRAND}; outline-offset: 1px; border-radius: 4px; }
+  /* An off row dims its controls, not itself: the row's own opacity would
+     dim the focus outline with them. A dragged row is dimmed as one piece. */
+  .ausboss-lora-row.off > * { opacity: 0.45; }
+  .ausboss-lora-row.dragging { opacity: 0.55; }
+  .ausboss-lora-row.dragging > * { opacity: 1; }
+  /* Groups: a header row, then its LoRAs set in behind a thin line. The
+     header's switch shares the plain rows' switch column. */
+  .ausboss-lora-ghead { flex: none; display: flex; align-items: center; gap: 6px;
+    height: ${HEADER_HEIGHT}px; border-radius: 5px; padding-right: 4px; }
+  .ausboss-lora-ghead.drop { background: rgba(0,180,170,.16); box-shadow: inset 0 0 0 1px ${BRAND}; }
+  .ausboss-lora-ghead.dragging, .ausboss-lora-row.child.dragging { opacity: 0.45; }
+  .ausboss-lora-ghead.off .ausboss-lora-gname { opacity: 0.55; }
+  /* A group switched off: its rows keep their own switches, dimmed. */
+  .ausboss-lora-row.groupoff > * { opacity: 0.4; }
+  .ausboss-lora-row.groupoff.off > * { opacity: 0.25; }
+  .ausboss-lora-gfold { width: 16px; height: 20px; border: none; background: transparent;
+    color: #9ba2aa; cursor: pointer; padding: 0; display: grid; place-items: center; flex: none; }
+  .ausboss-lora-gfold:hover { color: ${BRAND}; }
+  .ausboss-lora-gfold svg { transition: transform .12s; }
+  .ausboss-lora-ghead.folded .ausboss-lora-gfold svg { transform: rotate(-90deg); }
+  .ausboss-lora-gicon { flex: none; color: #8fb9b4; display: grid; place-items: center; }
+  .ausboss-lora-gname { flex: 1 1 auto; min-width: 0; color: #dfe6ea; font: 600 12px system-ui;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ausboss-lora-gcount { flex: none; color: #7d868e; font: 11px system-ui; }
+  .ausboss-lora-gname-input { flex: 1 1 auto; min-width: 0; height: 22px; border: 1px solid ${BRAND};
+    border-radius: 4px; background: #23272c; color: #fff; font: 600 12px system-ui;
+    padding: 0 6px; outline: none; }
+  .ausboss-lora-row.child { margin-left: ${GROUP_INDENT}px; position: relative; }
+  .ausboss-lora-row.child::after { content: ""; position: absolute; left: -${GROUP_INDENT - 6}px;
+    top: -${ROW_GAP}px; bottom: 0; width: 1px; background: rgba(0,180,170,.35);
+    pointer-events: none; }
+  .ausboss-lora-row.folded-away { display: none; }
+  .ausboss-lora-row.selected { background: rgba(0,180,170,.16);
+    box-shadow: 0 0 0 1px rgba(0,180,170,.7); border-radius: 5px; }
+  .ausboss-lora-dropline { position: fixed; height: 2px; background: ${BRAND}; border-radius: 1px;
+    z-index: 10002; pointer-events: none; box-shadow: 0 0 0 1px rgba(0,0,0,.4); }
+  .ausboss-lora-dropline::before { content: ""; position: absolute; left: -4px; top: -3px;
+    width: 8px; height: 8px; border-radius: 50%; background: ${BRAND}; }
+  .ausboss-lora-dragghost { position: fixed; z-index: 10003; pointer-events: none; padding: 3px 10px;
+    border-radius: 5px; background: #23272c; border: 1px solid ${BRAND}; color: #dfe6ea;
+    font: 12px system-ui; box-shadow: 0 6px 18px rgba(0,0,0,.5); white-space: nowrap;
+    max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  .ausboss-lora-grip { width: 14px; height: 24px; border: none; background: transparent;
+    color: #5c646c; cursor: grab; flex: none; padding: 0; display: grid; place-items: center;
+    touch-action: none; }
+  .ausboss-lora-grip:hover { color: #9ba2aa; }
+  .ausboss-lora-row.dragging .ausboss-lora-grip { cursor: grabbing; }
+  /* A row a Workflow Switches switch sets: a lock in the grip's place, and a
+     thin line down its left edge. Clicking the lock takes the row over. */
+  .ausboss-lora-grip.locked { color: #8fdcd4; cursor: pointer; }
+  .ausboss-lora-grip.locked:hover { color: #c4f1ec; }
+  /* The line sits in the stack's padding, clear of the lock. */
+  .ausboss-lora-row.owned, .ausboss-lora-ghead.owned { position: relative; }
+  .ausboss-lora-row.owned::before, .ausboss-lora-ghead.owned::before { content: ""; position: absolute;
+    left: -6px; top: 4px; bottom: 4px; width: 2px; border-radius: 1px; background: ${BRAND}; }
+  /* Where an inner loader's rows are set when its box holds them. */
+  .ausboss-lora-onbox { flex: none; height: ${NOTE_HEIGHT}px; line-height: ${NOTE_HEIGHT}px;
+    text-align: center; color: #8fb9b4; font: 11px system-ui; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; pointer-events: auto; }
+  .ausboss-lora-panel.readonly .ausboss-lora-bargroup,
+  .ausboss-lora-panel.readonly .ausboss-lora-stack { pointer-events: none; opacity: .55; }
+  .ausboss-lora-toggle { width: 30px; height: 16px; border-radius: 8px; border: none;
+    background: #3a4047; cursor: pointer; position: relative; flex: none; padding: 0; }
+  .ausboss-lora-toggle::after { content: ""; position: absolute; top: 2px; left: 2px;
+    width: 12px; height: 12px; border-radius: 50%; background: #9ba2aa; transition: left .12s; }
+  .ausboss-lora-toggle.on { background: ${BRAND}; }
+  .ausboss-lora-toggle.on::after { left: 16px; background: #fff; }
+  .ausboss-lora-toggle.mixed { background: #4d6763; }
+  .ausboss-lora-toggle.mixed::after { left: 9px; background: #cfd6da; }
+  /* Inside the stack container, pinned to its bottom edge: the auto margin
+     soaks up whatever free height the stack was handed. */
+  .ausboss-lora-actions { flex: none; display: flex; height: ${ACTIONS_HEIGHT}px;
+    margin-top: auto; }
+  /* The control bar is the panel's first row, sitting directly on top of
+     the stack; the bordered group inside it holds the controls as one
+     centered cluster. */
+  .ausboss-lora-bar { flex: none; display: flex; justify-content: center; }
+  /* The group stretches toward the panel width but stops short of the slot
+     labels it rides between (see BAND_RECLAIM); the summary flexes in the
+     middle so the controls spread instead of huddling. */
+  .ausboss-lora-bargroup { display: flex; align-items: center;
+    gap: 8px; min-width: 0; flex: 1 1 auto;
+    max-width: min(440px, calc(100% - 116px)); height: ${GROUP_HEIGHT}px; padding: 0 10px;
+    border: 1px solid #3a4047; border-radius: 7px; background: rgba(255,255,255,.05);
+    color: #9ba2aa; }
+  .ausboss-lora-gear { width: 24px; height: 24px; border: 1px solid #3a4047;
+    border-radius: 5px; background: #23272c; color: #9ba2aa; cursor: pointer;
+    display: grid; place-items: center; flex: none; padding: 0; }
+  .ausboss-lora-gear:hover { border-color: ${BRAND}; color: ${BRAND}; }
+  .ausboss-lora-stack { flex: 1 1 auto; min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column; gap: ${ROW_GAP}px;
+    padding: ${STACK_PADDING}px; border: 1px solid rgba(0,180,170,.22); border-radius: 6px;
+    background: rgba(0,0,0,.38); }
+  .ausboss-lora-blank { flex: 1 1 auto; display: flex; align-items: center; justify-content: center;
+    width: 100%; min-height: ${BLANK_HEIGHT}px; border: 1px dashed #3a4047;
+    border-radius: 5px; background: transparent; color: #9ba2aa; font: italic 12px system-ui;
+    text-align: center; padding: 0 10px; cursor: pointer; }
+  .ausboss-lora-blank:hover { border-color: ${BRAND}; color: ${BRAND}; }
+  .ausboss-lora-strength.out-of-range { color: #ffb26b; }
+  .ausboss-lora-strengthbox.out-of-range { border-color: #7a5230; }
+  .ausboss-lora-folder { padding: 6px 8px 2px; color: #9ba2aa; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.04em; }
+  .ausboss-lora-hoverthumb { position: fixed; z-index: 10001; max-width: 180px;
+    max-height: 180px; border-radius: 6px; border: 1px solid #3a4047;
+    box-shadow: 0 8px 28px rgba(0,0,0,.5); pointer-events: none; background: #1c1f23; }
+  .ausboss-lora-range { display: flex; align-items: center; gap: 6px; }
+  .ausboss-lora-name { flex: 1 1 auto; min-width: 0; height: 24px; border: 1px solid #3a4047;
+    border-radius: 5px; background: #23272c; color: inherit; text-align: left; padding: 0 8px;
+    cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    touch-action: none; }
+  .ausboss-lora-name:hover { border-color: ${BRAND}; }
+  .ausboss-lora-name.missing { color: #ff8a80; }
+  .ausboss-lora-name.moved { border-style: dashed; border-color: #3c6663; }
+  .ausboss-lora-name.dup { border-color: #f0a11e;
+    box-shadow: inset 0 0 0 1px rgba(240,161,30,.4); }
+  .ausboss-lora-name.empty { color: #9ba2aa; font-style: italic; }
+  /* A name's text is fitted to this box by fitLabels (middle ellipsis);
+     the end ellipsis here only covers a box that has not been fitted. */
+  .ausboss-lora-label { display: block; overflow: hidden; text-overflow: ellipsis;
+    white-space: pre; }
+  .ausboss-lora-dir { opacity: .6; }
+  .ausboss-lora-strengthbox { display: flex; width: 66px; height: 24px; border: 1px solid #3a4047;
+    border-radius: 5px; background: #23272c; overflow: hidden; flex: none; }
+  .ausboss-lora-strengthbox:focus-within { border-color: ${BRAND}; }
+  .ausboss-lora-strength { flex: 1 1 auto; min-width: 0; height: 100%; border: none; padding: 0;
+    background: transparent; color: inherit; text-align: center; cursor: ew-resize;
+    user-select: none; }
+  .ausboss-lora-strength:focus { cursor: text; outline: none; user-select: text; }
+  .ausboss-lora-step { flex: none; width: 14px; display: flex; flex-direction: column;
+    border-left: 1px solid #3a4047; }
+  .ausboss-lora-step button { flex: 1 1 0; border: none; background: transparent; color: #9ba2aa;
+    cursor: pointer; padding: 0; display: grid; place-items: center; }
+  .ausboss-lora-step button:hover { color: ${BRAND}; background: rgba(255,255,255,.05); }
+  .ausboss-lora-info { width: 24px; height: 24px; border: 1px solid #3a4047; border-radius: 5px;
+    background: #23272c; color: #9ba2aa; cursor: pointer; flex: none;
+    font: 700 11px system-ui; }
+  .ausboss-lora-info:hover { border-color: ${BRAND}; color: ${BRAND}; }
+  .ausboss-lora-add { flex: none; height: ${ACTIONS_HEIGHT}px; border: 1px solid ${BRAND};
+    border-radius: 6px; background: ${BRAND}; color: #06211f; font: 600 12px system-ui;
+    cursor: pointer; padding: 0 12px; white-space: nowrap; box-shadow: 0 1px 0 rgba(0,0,0,.35); }
+  .ausboss-lora-add:hover { background: #00c9be; border-color: #00c9be; }
+  .ausboss-lora-add:active { transform: translateY(1px); box-shadow: none; }
+  .ausboss-lora-add:focus-visible { outline: 2px solid #9becf5; outline-offset: 1px; }
+  .ausboss-lora-add:disabled { opacity: 0.4; cursor: default; }
+  .ausboss-lora-actions .ausboss-lora-add { flex: 1 1 auto; }
+  .ausboss-lora-summary { color: #9ba2aa; flex: 1 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+  .ausboss-lora-pop { position: fixed; z-index: 10000; background: #1c1f23;
+    border: 1px solid #3a4047; border-radius: 7px; box-shadow: 0 8px 28px rgba(0,0,0,.5);
+    font: ${POP_FONT}; color: #d7dde2; display: flex; flex-direction: column; }
+  .ausboss-lora-search { margin: 8px; height: 26px; border: 1px solid #3a4047; border-radius: 5px;
+    background: #23272c; color: inherit; padding: 0 8px; outline: none; }
+  .ausboss-lora-search:focus { border-color: ${BRAND}; }
+  .ausboss-lora-list { overflow-y: auto; max-height: 48vh; padding: 0 ${LIST_PAD_X}px 6px;
+    scrollbar-gutter: stable; }
+  .ausboss-lora-option { padding: 5px ${OPTION_PAD_X}px; border-radius: 4px; cursor: pointer;
+    overflow: hidden; }
+  .ausboss-lora-folder-option, .ausboss-lora-folder { display: flex; align-items: center;
+    gap: 6px; font-weight: 600; padding-top: 2px; padding-bottom: 2px; }
+  .ausboss-lora-folder { padding-right: ${OPTION_PAD_X}px; color: #9ba2aa; }
+  .ausboss-lora-folder-option .ausboss-lora-label, .ausboss-lora-folder .ausboss-lora-label {
+    flex: 1 1 auto; min-width: 0; }
+  .ausboss-lora-folder-toggle { flex: none; width: 24px; height: 24px; display: grid;
+    place-items: center; padding: 0; border: none; border-radius: 4px; background: transparent;
+    color: #9ba2aa; cursor: pointer; }
+  .ausboss-lora-folder-toggle:hover { background: #3a4047; color: ${BRAND}; }
+  .ausboss-lora-folder-toggle:focus-visible { outline: 2px solid #9becf5; outline-offset: -2px; }
+  .ausboss-lora-folder-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
+  .ausboss-lora-folder-count { flex: none; color: #9ba2aa; font-size: 11px; }
+  .ausboss-lora-picker-note { padding: 0 10px 8px; color: #9ba2aa; font-size: 11px; }
+  /* Tick boxes sit in the gap left of each file in the + LoRA list. */
+  .ausboss-lora-option.tickable { position: relative; display: flex; align-items: center; }
+  .ausboss-lora-option.tickable > .ausboss-lora-label { flex: 1 1 auto; min-width: 0; }
+  .ausboss-lora-tick { position: absolute; top: 50%; width: 14px; height: 14px; margin-top: -7px;
+    padding: 0; border: 1.5px solid #5c646c; border-radius: 3px; background: #23272c;
+    cursor: pointer; display: grid; place-items: center; }
+  .ausboss-lora-option:hover .ausboss-lora-tick { border-color: #9ba2aa; }
+  .ausboss-lora-tick:hover { border-color: ${BRAND} !important; }
+  .ausboss-lora-tick.on { background: ${BRAND}; border-color: ${BRAND}; }
+  .ausboss-lora-tick.on::after { content: ""; width: 7px; height: 4px; border: 2px solid #06211f;
+    border-top: 0; border-right: 0; transform: translate(0, -1px) rotate(-45deg); }
+  .ausboss-lora-option.ticked { background: rgba(0,180,170,.10); }
+  .ausboss-lora-option.instack { color: #7d868e; }
+  .ausboss-lora-instack { flex: none; padding-left: 8px; color: #7d868e; font-size: 11px;
+    white-space: nowrap; }
+  .ausboss-lora-tickbar { display: flex; align-items: center; gap: 8px; padding: 8px;
+    border-top: 1px solid #3a4047; }
+  .ausboss-lora-tickcount { flex: 1 1 auto; min-width: 0; color: #9ba2aa; font-size: 11px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ausboss-lora-tickclear { flex: none; height: 26px; border: 1px solid #3a4047; border-radius: 6px;
+    background: #23272c; color: #9ba2aa; padding: 0 10px; cursor: pointer; font: 12px system-ui; }
+  .ausboss-lora-tickclear:hover { border-color: #9ba2aa; color: #d7dde2; }
+  .ausboss-lora-option.highlight, .ausboss-lora-folder-option:hover { background: #2c3238; }
+  .ausboss-lora-option.current { color: ${BRAND}; }
+  .ausboss-lora-empty { padding: 10px; color: #9ba2aa; font-style: italic; }
+  .ausboss-lora-menu { min-width: 140px; padding: 4px; }
+  /* Direct children only - those are the plain list rows. Buttons that sit
+     inside a wrapper row (Save, apply, delete) are specialized and keep their
+     own look; as a blanket descendant rule this outranked them and forced
+     width:100%, which clipped the Save button and stretched the delete x. */
+  .ausboss-lora-menu > button { display: block; width: 100%; text-align: left; border: none;
+    background: transparent; color: inherit; padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+  .ausboss-lora-menu > button:hover:not(:disabled) { background: #2c3238; }
+  .ausboss-lora-menu > button.indent { padding-left: 22px; }
+  .ausboss-lora-menu-sub { padding: 4px 8px 2px; color: #7d868e; font: 600 10px system-ui;
+    text-transform: uppercase; letter-spacing: .06em; }
+  .ausboss-lora-menu-rule { height: 1px; background: #3a4047; margin: 4px 2px; }
+  .ausboss-lora-menu button:disabled { opacity: 0.35; cursor: default; }
+  .ausboss-lora-menu > button.ausboss-lora-danger { color: #ff8585; }
+  .ausboss-lora-menu > button.ausboss-lora-delete-all { border-top: 1px solid #574047; margin-top: 6px; padding-top: 8px; }
+  .ausboss-lora-templates { min-width: 240px; padding: 8px; gap: 6px; display: flex;
+    flex-direction: column; }
+  .ausboss-lora-template-row { display: flex; align-items: center; gap: 4px; }
+  .ausboss-lora-template-row > button:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; text-align: left; border: none;
+    background: transparent; color: inherit; padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+  .ausboss-lora-template-row > button:first-child:hover { background: #2c3238; }
+  .ausboss-lora-template-x { flex: none; width: 22px; height: 22px; border: none; border-radius: 4px;
+    background: transparent; color: #9ba2aa; cursor: pointer; font-size: 14px; line-height: 1; }
+  .ausboss-lora-template-x:hover { background: #2c3238; color: #ff8a80; }
+  .ausboss-lora-card { width: 300px; padding: 10px; gap: 8px; }
+  .ausboss-lora-card img { max-width: 100%; max-height: 180px; object-fit: contain;
+    border-radius: 5px; align-self: center; }
+  .ausboss-lora-card h4 { margin: 0; font-size: 12px; color: #fff; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .ausboss-lora-meta { color: #9ba2aa; }
+  .ausboss-lora-civitai-link { color: ${BRAND}; text-decoration: none; align-self: flex-start; }
+  .ausboss-lora-civitai-link:hover { text-decoration: underline; }
+  .ausboss-lora-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .ausboss-lora-chip { border: 1px solid #3a4047; border-radius: 10px; background: #23272c;
+    color: inherit; cursor: pointer; padding: 2px 8px; font-size: 11px; }
+  .ausboss-lora-chip.active { border-color: ${BRAND}; color: ${BRAND}; }
+  .ausboss-lora-fetch { align-self: flex-start; }
+  .ausboss-lora-custom { display: flex; gap: 6px; align-items: center; }
+  .ausboss-lora-custom input { flex: 1 1 auto; min-width: 0; height: ${ACTIONS_HEIGHT}px;
+    border: 1px solid #3a4047; box-sizing: border-box;
+    border-radius: 5px; background: #23272c; color: inherit; padding: 0 8px; outline: none; }
+  .ausboss-lora-custom input:focus { border-color: ${BRAND}; }
+  `;
+  document.head.append(style);
+}
+
+function el(tag, className, text) {
+  const element = document.createElement(tag);
+  if (className) element.className = className;
+  if (text !== undefined) element.textContent = text;
+  return element;
+}
+
+// ---------- long names ----------
+
+// Names are cut in the middle, not at the end (fitLoraLabel in
+// lora_stack.mjs): the end of a LoRA file name is what tells its
+// checkpoints apart. A label keeps its whole text in data, so it can be
+// refitted whenever its box changes width.
+let measureContext = null;
+
+function measureCanvas() {
+  measureContext ??= document.createElement("canvas").getContext("2d");
+  return measureContext;
+}
+
+// Widths are cached for the batch: labels in one folder share every
+// shortened-folder candidate, so a long picker measures each only once.
+function textMeasure(element) {
+  const context = measureCanvas();
+  if (!context) return null;
+  const style = getComputedStyle(element);
+  context.font = style.font
+    || `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+  const widths = new Map();
+  return (text) => {
+    let width = widths.get(text);
+    if (width === undefined) {
+      width = context.measureText(text).width;
+      widths.set(text, width);
+    }
+    return width;
+  };
+}
+
+function showLabel(label, { folder, name }) {
+  label.textContent = "";
+  if (folder) label.append(el("span", "ausboss-lora-dir", folder));
+  label.append(name);
+}
+
+// Plain text until fitLabels lays it out (it runs before the next paint).
+function nameLabel(text) {
+  const label = el("span", "ausboss-lora-label", text);
+  label.dataset.ausbossFull = text;
+  return label;
+}
+
+// Every label in the list shares one font, so one measure serves them all.
+// Widths are all read before any text is written: interleaving the two
+// would lay the list out again for every label. A caller that already
+// knows the labels' width passes it and no layout is read at all. A box
+// that is not laid out yet (width 0) is left for its resize observer.
+function fitLabels(labels, knownWidth) {
+  const list = [...labels];
+  if (!list.length) return;
+  const measure = textMeasure(list[0]);
+  if (!measure) return;
+  const widths = list.map((label) => knownWidth ?? label.clientWidth);
+  list.forEach((label, index) => {
+    if (widths[index] > 0) {
+      showLabel(label, fitLoraLabel(label.dataset.ausbossFull ?? "", widths[index] - 1, measure));
+    }
+  });
+}
+
+
+// Six-dot drag grip, hand-drawn like the shared gear so no glyph font is
+// trusted to have it.
+function gripIconSvg() {
+  const dots = [2, 7, 12].flatMap((y) => [2, 6].map((x) => `<circle cx="${x}" cy="${y}" r="1.3"/>`));
+  return `<svg width="8" height="14" viewBox="0 0 8 14" fill="currentColor" aria-hidden="true">${dots.join("")}</svg>`;
+}
+
+// A group header's folder.
+function folderIconSvg() {
+  return '<svg width="15" height="13" viewBox="0 0 15 13" fill="none" stroke="currentColor" '
+    + 'stroke-width="1.3" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M1.5 2.5a1 1 0 0 1 1-1h3.2l1.4 1.6h5.4a1 1 0 0 1 1 1v6.9a1 1 0 0 1-1 1h-10a1 1 0 0 1-1-1z"/></svg>';
+}
+
+// The grip of a row a switch sets.
+function lockIconSvg() {
+  return '<svg width="11" height="13" viewBox="0 0 11 13" fill="none" stroke="currentColor" '
+    + 'stroke-width="1.5" stroke-linecap="round" aria-hidden="true">'
+    + '<rect x="1.2" y="5.6" width="8.6" height="6.4" rx="1.6" fill="currentColor" fill-opacity=".16"/>'
+    + '<path d="M3.1 5.6V3.9a2.4 2.4 0 0 1 4.8 0v1.7"/></svg>';
+}
+
+// Stepper chevrons, hand-drawn for the same reason.
+function chevronIconSvg(up) {
+  const points = up ? "1.5,4 4.5,1 7.5,4" : "1.5,1 4.5,4 7.5,1";
+  return `<svg width="9" height="5" viewBox="0 0 9 5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="${points}"/></svg>`;
+}
+
+// The shared collapse handles the sizing hooks; a text widget can also carry
+// a DOM element on some frontends, so blank that too.
+function hideWidget(widget) {
+  if (!widget) return;
+  collapseWidget(widget);
+  if (widget.element) widget.element.style.display = "none";
+  if (widget.inputEl) widget.inputEl.style.display = "none";
+}
+
+async function fetchLoraList() {
+  const response = await api.fetchApi("/ausboss/lora/list");
+  if (!response.ok) throw new Error("读取 LoRA 列表失败。");
+  const data = await response.json();
+  if (!Array.isArray(data.loras) || data.loras.some((name) => typeof name !== "string")) {
+    throw new Error("读取 LoRA 列表失败。");
+  }
+  return data.loras;
+}
+
+// One shared popup slot: opening any popup closes the previous one, and every
+// listener hangs off one AbortController so teardown cannot leak.
+let activePopup = null;
+
+function closePopup() {
+  hideHoverThumb();
+  if (!activePopup) return;
+  activePopup.abort.abort();
+  activePopup.element.remove();
+  activePopup = null;
+}
+
+// ---------- hover thumbnail ----------
+
+// Raised when a preview picture was saved since the page loaded, so the
+// browser asks for the picture again instead of reusing a failed load.
+let thumbVersion = 0;
+
+function thumbUrl(name) {
+  const version = thumbVersion ? `&v=${thumbVersion}` : "";
+  return api.apiURL(`/ausboss/lora/thumb?name=${encodeURIComponent(name)}${version}`);
+}
+
+// A picture was saved: the next hover and the card show it.
+function pictureSaved() {
+  thumbVersion += 1;
+  if (hoverThumb) delete hoverThumb.dataset.name;
+}
+
+// One floating preview image for the whole pack tab, shared by row hover and
+// the picker. Fixed-positioned and pointer-events: none, so it can never
+// shift layout or steal the cursor; it stays hidden until the image actually
+// loads, so a LoRA without a sidecar preview shows nothing at all.
+let hoverThumb = null;
+
+function ensureHoverThumb() {
+  if (hoverThumb) return hoverThumb;
+  hoverThumb = el("img", "ausboss-lora-hoverthumb");
+  hoverThumb.alt = "";
+  hoverThumb.style.display = "none";
+  hoverThumb.addEventListener("load", () => {
+    if (hoverThumb.dataset.show === "1") hoverThumb.style.display = "";
+  });
+  hoverThumb.addEventListener("error", () => { hoverThumb.style.display = "none"; });
+  document.body.append(hoverThumb);
+  return hoverThumb;
+}
+
+function moveHoverThumb(x, y) {
+  if (!hoverThumb || hoverThumb.dataset.show !== "1") return;
+  const spot = thumbPosition(x, y, window.innerWidth, window.innerHeight);
+  hoverThumb.style.left = `${spot.left}px`;
+  hoverThumb.style.top = `${spot.top}px`;
+}
+
+function showHoverThumb(state, name, x, y) {
+  if (!name || state.settings?.thumbnails === false) return;
+  const thumb = ensureHoverThumb();
+  thumb.dataset.show = "1";
+  if (thumb.dataset.name !== name) {
+    thumb.dataset.name = name;
+    thumb.style.display = "none";
+    thumb.src = thumbUrl(effectiveLoraName(state, name));
+  } else if (thumb.complete && thumb.naturalWidth > 0) {
+    thumb.style.display = "";
+  }
+  moveHoverThumb(x, y);
+}
+
+function hideHoverThumb() {
+  if (!hoverThumb) return;
+  hoverThumb.dataset.show = "0";
+  hoverThumb.style.display = "none";
+}
+
+function openPopup(element, anchorRect, { width, onEscape } = {}) {
+  closePopup();
+  const abort = new AbortController();
+  element.classList.add("ausboss-lora-pop");
+  if (width) element.style.width = `${width}px`;
+  document.body.append(element);
+  const place = () => {
+    const popRect = element.getBoundingClientRect();
+    let left = Math.min(anchorRect.left, window.innerWidth - popRect.width - 8);
+    let top = anchorRect.bottom + 4;
+    if (top + popRect.height > window.innerHeight - 8) {
+      top = Math.max(8, anchorRect.top - popRect.height - 4);
+    }
+    element.style.left = `${Math.max(8, left)}px`;
+    element.style.top = `${top}px`;
+  };
+  place();
+  requestAnimationFrame(place);
+  document.addEventListener(
+    "pointerdown",
+    (event) => { if (!element.contains(event.target)) closePopup(); },
+    { capture: true, signal: abort.signal }
+  );
+  window.addEventListener(
+    "keydown",
+    (event) => { if (event.key === "Escape") { event.stopPropagation(); closePopup(); onEscape?.(); } },
+    { capture: true, signal: abort.signal }
+  );
+  activePopup = { element, abort };
+  return { place };
+}
+
+// Every commit is a user gesture and enters undo history; a drag passes
+// record: false for its intermediate values and records once on release.
+function commitRows(state, rows, { structural = false, record = true } = {}) {
+  // A card that only shows rows kept elsewhere changes nothing.
+  if (state.readOnly) {
+    renderRows(state);
+    return;
+  }
+  state.rows = rows;
+  state.widget.value = serializeRows(rows);
+  state.renderedValue = state.widget.value;
+  state.node.graph?.setDirtyCanvas(true, true);
+  if (structural) renderRows(state);
+  else updateRowValues(state);
+  if (record) notifyAusbossChange();
+}
+
+// A box shows its loader's rows the way the loader does: one strength per
+// row, or model and CLIP apart.
+function linked(state) {
+  return (state.box?.loader ?? state.node).properties?.ausbossLoraLinked !== false;
+}
+
+// Picker options honor only hide-extension: their folder context is the
+// disambiguator (group headers, search prefixes), so it stays.
+function displayName(state, name) {
+  return shortLoraName(name, {
+    hideFolders: false,
+    hideExtension: state.settings?.hide_extension !== false,
+  });
+}
+
+// A row's label (and the info card title) also hides the folder by
+// default; the full path lives in the tooltip.
+function rowLabel(state, name) {
+  return shortLoraName(name, {
+    hideFolders: state.settings?.hide_folders !== false,
+    hideExtension: state.settings?.hide_extension !== false,
+  });
+}
+
+// Each named row's fit against the install's lora list,
+// cached per name; refreshAvailable clears the cache when the list changes.
+function nameStatus(state, name) {
+  if (!name || !Array.isArray(state.available)) return null;
+  if (!state.nameStatus) state.nameStatus = new Map();
+  if (!state.nameStatus.has(name)) {
+    state.nameStatus.set(name, resolveLoraName(name, state.available));
+  }
+  return state.nameStatus.get(name);
+}
+
+// The name the SERVER should be asked about: a remapped row's saved path
+// would 404 on the thumb/info routes (they may be served by the public
+// pack's copy, which resolves strictly), so ask with the resolved one.
+function effectiveLoraName(state, name) {
+  const status = nameStatus(state, name);
+  return status?.status === "remapped" ? status.name : name;
+}
+
+function refreshAvailable(state) {
+  fetchLoraList()
+    .then((names) => {
+      state.available = names;
+      state.nameStatus = new Map();
+      decorateRows(state);
+      // Rows whose range lookup 404ed under the stale path get a second
+      // chance under the resolved one.
+      for (const row of state.rows) {
+        if (!row.name) continue;
+        if (nameStatus(state, row.name)?.status === "remapped"
+            && rangeCache.get(row.name) === null) {
+          rangeCache.delete(row.name);
+          ensureRange(state, row.name);
+        }
+      }
+    })
+    .catch(() => {});
+}
+
+// CSS pixels the panel needs to show every row with no scrolling. The add
+// button lives inside the stack now, so its height (plus the gap above it)
+// counts inside the stack box.
+function panelHeight(state) {
+  const folded = foldedGroups(state);
+  let items = 0;
+  let height = 0;
+  for (const item of stackLayout(state.rows)) {
+    if (item.kind === "group") {
+      items += 1;
+      height += HEADER_HEIGHT;
+    } else if (!(item.group && folded.has(item.group))) {
+      items += 1;
+      height += ROW_HEIGHT;
+    }
+  }
+  const inner = items ? height + (items - 1) * ROW_GAP : BLANK_HEIGHT;
+  const stack = inner + ROW_GAP + ACTIONS_HEIGHT + STACK_PADDING * 2 + 2; // +2 border
+  const note = state.note ? NOTE_HEIGHT + ROW_GAP : 0;
+  return PANEL_PADDING * 2 + GROUP_HEIGHT + ROW_GAP + note + stack;
+}
+
+function panelMinWidth(state) {
+  return PANEL_MIN_WIDTH + (linked(state) ? 0 : SEPARATE_EXTRA_WIDTH);
+}
+
+function fitNode(state) {
+  const width = Math.max(panelMinWidth(state), state.node.size?.[0] || PANEL_MIN_WIDTH);
+  const height = state.node.computeSize
+    ? state.node.computeSize()[1]
+    : panelHeight(state) + WIDGET_FRAME + 80;
+  state.node.setSize?.([width, height]);
+  state.node.graph?.setDirtyCanvas(true, true);
+}
+
+// ---------- suggested strength ranges ----------
+
+// One cached range per LoRA name; null = known-absent, undefined = not yet
+// fetched. Filled lazily from the info route so rows can tint out-of-range
+// strengths without a request per render.
+const rangeCache = new Map();
+const rangeFetches = new Set();
+
+function ensureRange(state, name) {
+  if (!name || rangeCache.has(name) || rangeFetches.has(name)) return;
+  rangeFetches.add(name);
+  api.fetchApi(`/ausboss/lora/info?name=${encodeURIComponent(effectiveLoraName(state, name))}`)
+    .then((response) => response.json())
+    .then((data) => {
+      rangeCache.set(name, data.ok ? data.info.range ?? null : null);
+      updateRowValues(state);
+    })
+    .catch(() => rangeCache.set(name, null))
+    .finally(() => rangeFetches.delete(name));
+}
+
+function applyRangeTint(input, row, key) {
+  const range = rangeCache.get(row.name);
+  const outside = strengthOutOfRange(row[key], range ?? null);
+  input.classList.toggle("out-of-range", outside);
+  // The border moved to the wrapper when the stepper arrived; tint it too.
+  input.closest(".ausboss-lora-strengthbox")?.classList.toggle("out-of-range", outside);
+  input.title = range && (range.min !== null || range.max !== null)
+    ? `建议范围 ${range.min ?? "any"} to ${range.max ?? "any"}. ` + input.dataset.baseTitle
+    : input.dataset.baseTitle;
+}
+
+// ---------- strength boxes ----------
+
+function strengthBox(state, index, key) {
+  const box = el("div", "ausboss-lora-strengthbox");
+  const input = el("input", "ausboss-lora-strength");
+  input.value = state.rows[index][key].toFixed(2);
+  input.dataset.baseTitle = key === "strength"
+    ? "模型强度。左右拖动调整，点击可直接输入，方向键微调。Shift = 细调。"
+    : "CLIP 强度。左右拖动调整，点击可直接输入，方向键微调。Shift = 细调。";
+  input.readOnly = true;
+  input.dataset.ausbossStrength = key;
+  // A short name; the tooltip above stays as the longer description.
+  input.setAttribute("aria-label", key === "strength" ? "模型强度" : "CLIP 强度");
+  input.__ausbossRead = () => state.rows[index]?.[key].toFixed(2) ?? "1.00";
+  input.__ausbossTint = () => state.rows[index] && applyRangeTint(input, state.rows[index], key);
+  ensureRange(state, state.rows[index].name);
+
+  const commitValue = (value, { record = true } = {}) => {
+    let rows = state.rows;
+    if (key === "strength") rows = setStrength(rows, index, value, linked(state));
+    else rows = rows.map((row, i) => (i === index ? { ...row, strength_clip: roundStrength(value) } : row));
+    commitRows(state, rows, { record });
+  };
+
+  let drag = null;
+  input.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !input.readOnly) return;
+    drag = { x: event.clientX, y: event.clientY, start: state.rows[index][key], scrubbed: false };
+    input.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+  input.addEventListener("pointermove", (event) => {
+    if (!drag) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.scrubbed && isScrubbing(dx, dy)) drag.scrubbed = true;
+    if (drag.scrubbed) {
+      commitValue(scrubValue(drag.start, dx, event.shiftKey, state.settings?.step), { record: false });
+    }
+  });
+  const endDrag = (event) => {
+    if (!drag) return;
+    try { input.releasePointerCapture(event.pointerId); } catch {}
+    const wasClick = !drag.scrubbed;
+    drag = null;
+    if (!wasClick) notifyAusbossChange();
+    if (wasClick) {
+      input.readOnly = false;
+      input.focus();
+      input.select();
+    }
+  };
+  input.addEventListener("pointerup", endDrag);
+  input.addEventListener("pointercancel", endDrag);
+
+  input.addEventListener("keydown", (event) => {
+    keepKeyInField(event);
+    if (event.key === "Enter") input.blur();
+    else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      const coarse = state.settings?.step ?? DEFAULT_STEP;
+      const step = (event.shiftKey ? FINE_STEP : coarse) * (event.key === "ArrowUp" ? 1 : -1);
+      commitValue(state.rows[index][key] + step);
+      input.value = state.rows[index][key].toFixed(2);
+      input.select();
+    }
+  });
+  input.addEventListener("blur", () => {
+    if (!input.readOnly) {
+      const number = Number(input.value);
+      if (Number.isFinite(number)) commitValue(number);
+      input.readOnly = true;
+    }
+    input.value = state.rows[index][key].toFixed(2);
+  });
+
+  // Click-to-step arrows: the third way to set a strength, next to scrubbing
+  // and typing. Steps by the configured step (gear menu); Shift steps fine.
+  const steps = el("div", "ausboss-lora-step");
+  const stepButton = (direction) => {
+    const button = el("button");
+    button.type = "button";
+    button.tabIndex = -1;
+    button.title = `Strength ${direction > 0 ? "up" : "down"} 一档。Shift = 细调。`;
+    button.innerHTML = chevronIconSvg(direction > 0);
+    button.addEventListener("click", (event) => {
+      const coarse = state.settings?.step ?? DEFAULT_STEP;
+      commitValue(state.rows[index][key] + (event.shiftKey ? FINE_STEP : coarse) * direction);
+      input.value = state.rows[index][key].toFixed(2);
+    });
+    return button;
+  };
+  steps.append(stepButton(1), stepButton(-1));
+  box.append(input, steps);
+  applyRangeTint(input, state.rows[index], key);
+  return box;
+}
+
+// ---------- picker ----------
+
+// Width of the longest label in the picker's font. Remembered across opens,
+// so the next picker opens at the width its list will want instead of
+// jumping when the list arrives.
+let widestPickerLabel = 0;
+
+// Folder browsing is a local preference, shared by the node's add/replace
+// pickers. It never changes the workflow or enters its undo history.
+const COLLAPSED_FOLDERS_KEY = "AusBoss.lora_loader.collapsedFolders";
+let rememberedCollapsedFolders = new Set();
+
+function loadCollapsedFolders() {
+  try {
+    const raw = window.localStorage?.getItem(COLLAPSED_FOLDERS_KEY);
+    const stored = raw == null ? null : JSON.parse(raw);
+    if (Array.isArray(stored)) rememberedCollapsedFolders = new Set(stored.filter((name) => typeof name === "string"));
+  } catch {}
+  return rememberedCollapsedFolders;
+}
+
+function saveCollapsedFolders(folders) {
+  rememberedCollapsedFolders = folders;
+  try { window.localStorage?.setItem(COLLAPSED_FOLDERS_KEY, JSON.stringify([...folders])); } catch {}
+}
+
+function widestLabel(labels) {
+  const context = measureCanvas();
+  if (!context) return 0;
+  context.font = POP_FONT;
+  let widest = 0;
+  for (const label of labels) widest = Math.max(widest, context.measureText(label).width);
+  return widest;
+}
+
+function openPicker(state, index, anchor, { keyboard = false } = {}) {
+  // + LoRA adds only after a choice, so cancelling leaves no empty row and
+  // a whole folder is one undo step. A row's own picker replaces one file.
+  const adding = index == null;
+  // Focus goes back to the stack only when the picker was opened from the
+  // keyboard. Opened or answered with the mouse, it leaves the keys alone.
+  const backToStack = (target) => { if (keyboard) focusStackRow(state, target); };
+  const pop = el("div");
+  const search = el("input", "ausboss-lora-search");
+  search.placeholder = "搜索 LoRA...";
+  search.setAttribute("aria-label", "搜索 LoRA");
+  const list = el("div", "ausboss-lora-list");
+  list.append(el("div", "ausboss-lora-empty", "加载中..."));
+  pop.append(search, list);
+  if (adding) pop.append(el("div", "ausboss-lora-picker-note",
+    "点一个文件即可加入。勾选框（或 Ctrl 点击）可以一次加多个。点文件夹名可整包加入。已在堆栈里的文件会跳过。"));
+  const anchorRect = anchor.getBoundingClientRect();
+  const fitWidth = () => pickerWidth(widestPickerLabel, anchorRect.width, window.innerWidth);
+  const originalRowId = state.rows[index]?.id;
+  const { place } = openPopup(pop, anchorRect, {
+    width: fitWidth(),
+    onEscape: () => backToStack(adding ? state.rows.length
+      : state.rows.findIndex((row) => row.id === originalRowId)),
+  });
+  search.focus();
+
+  let names = [];
+  let folders = new Map();
+  let options = [];
+  // Files ticked to add together, in the order they were ticked. They stay
+  // ticked through a search, so a set can be gathered from several searches.
+  const ticked = [];
+  const pathKey = (name) => String(name).replaceAll("\\", "/");
+  const inStack = () => new Set(state.rows.map((row) => pathKey(row.name)));
+  let loadError = false;
+  let highlight = -1;
+  const collapsedFolders = loadCollapsedFolders();
+  // Search reveals matches without losing the user's usual folded view.
+  let searchCollapsed = new Set();
+  const currentFolds = () => search.value.trim() ? searchCollapsed : collapsedFolders;
+
+  // after: "highlight" keeps the folder highlighted for the search box's
+  // arrow keys, "arrow" keeps focus on the fold arrow that was pressed with
+  // the keyboard, "search" hands the keys back to the search box.
+  const toggleFolder = (name, collapsed = !currentFolds().has(name), after = "highlight") => {
+    const folds = currentFolds();
+    if (collapsed) folds.add(name);
+    else folds.delete(name);
+    if (folds === collapsedFolders) saveCollapsedFolders(folds);
+    const scrollTop = list.scrollTop;
+    highlight = -1;
+    renderList();
+    if (after === "highlight" && adding) {
+      highlight = options.findIndex((entry) => entry.kind === "folder" && entry.name === name);
+      list.querySelector(`[data-ausboss-flat="${highlight}"]`)?.classList.add("highlight");
+    }
+    list.scrollTop = scrollTop;
+    if (after === "arrow") [...list.querySelectorAll(".ausboss-lora-folder-toggle")]
+      .find((button) => button.dataset.folder === name)?.focus({ preventScroll: true });
+    else if (after === "search") search.focus({ preventScroll: true });
+  };
+
+  const appendFolderToggle = (row, name) => {
+    const button = el("button", "ausboss-lora-folder-toggle");
+    const expanded = !currentFolds().has(name);
+    button.type = "button";
+    button.dataset.folder = name;
+    button.innerHTML = chevronIconSvg(false);
+    button.setAttribute("aria-expanded", String(expanded));
+    button.title = `${expanded ? "收起" : "展开"} ${name}`;
+    button.setAttribute("aria-label", button.title);
+    button.addEventListener("keydown", keepKeyInField);
+    button.addEventListener("click", (event) => {
+      // Only the folder name adds files; its arrow is browse-only.
+      event.stopPropagation();
+      // A click made with a key (detail 0) stays on the arrow. A mouse click
+      // goes back to the search box, so typing keeps searching.
+      toggleFolder(name, !currentFolds().has(name), event.detail === 0 ? "arrow" : "search");
+    });
+    row.append(button);
+  };
+
+  const pick = (entry, { pointer = false } = {}) => {
+    if (!entry) return;
+    const { name, kind } = entry;
+    if (kind === "folder") {
+      const result = appendFolderRows(state.rows, folders.get(name) ?? [], state.settings?.default_strength ?? 1);
+      if (!result.added) {
+        loraToast("这个文件夹里的 LoRA 都已在堆栈中，没有添加任何东西。");
+        return;
+      }
+      const firstAdded = state.rows.length;
+      closePopup();
+      commitRows(state, result.rows, { structural: true });
+      fitNode(state);
+      loraToast(`已从 ${name} 加入 ${result.added} 个 LoRA。`
+        + (result.skipped ? ` Skipped ${result.skipped} 已在堆栈中。` : ""));
+      if (!pointer) backToStack(firstAdded);
+      return;
+    }
+    closePopup();
+    const strength = roundStrength(state.settings?.default_strength ?? 1);
+    const rows = adding
+      ? [...state.rows, { ...newRow(), name, strength, strength_clip: strength }]
+      : state.rows.map((row, i) =>
+        // A different file means different trigger words: clear the old ones.
+        i === index ? { ...row, name, triggers: name === row.name ? row.triggers : "" } : row
+      );
+    commitRows(state, rows, { structural: true });
+    if (adding) fitNode(state);
+    if (!pointer) backToStack(adding ? rows.length - 1 : index);
+  };
+
+  const addTicked = ({ pointer = false } = {}) => {
+    const result = appendFolderRows(state.rows, ticked, state.settings?.default_strength ?? 1);
+    if (!result.added) {
+      loraToast("勾选的 LoRA 都已在堆栈中，没有添加任何东西。");
+      return;
+    }
+    const firstAdded = state.rows.length;
+    closePopup();
+    commitRows(state, result.rows, { structural: true });
+    fitNode(state);
+    loraToast(`已加入 ${result.added} 个 LoRA。`
+      + (result.skipped ? ` Skipped ${result.skipped} 已在堆栈中。` : ""));
+    if (!pointer) backToStack(firstAdded);
+  };
+
+  // While anything is ticked, the bottom note becomes a bar that adds them.
+  let tickBar = null;
+  const updateTickBar = () => {
+    const note = pop.querySelector(".ausboss-lora-picker-note");
+    if (!ticked.length) {
+      tickBar?.remove();
+      tickBar = null;
+      if (note) note.hidden = false;
+      place();
+      return;
+    }
+    if (note) note.hidden = true;
+    if (!tickBar) {
+      tickBar = el("div", "ausboss-lora-tickbar");
+      const clear = el("button", "ausboss-lora-tickclear", "Clear");
+      clear.type = "button";
+      clear.title = "取消勾选全部文件";
+      clear.addEventListener("click", () => {
+        ticked.length = 0;
+        renderTicks();
+        search.focus({ preventScroll: true });
+      });
+      const add = el("button", "ausboss-lora-add");
+      add.type = "button";
+      add.addEventListener("click", () => addTicked({ pointer: true }));
+      tickBar.append(el("span", "ausboss-lora-tickcount"), clear, add);
+      pop.append(tickBar);
+    }
+    const count = ticked.length;
+    tickBar.querySelector(".ausboss-lora-tickcount").textContent = `已勾选 ${count} 个`;
+    tickBar.querySelector(".ausboss-lora-add").textContent = `加入勾选的 ${count} 个 LoRA`;
+    place();
+  };
+
+  const renderTicks = () => {
+    for (const option of list.querySelectorAll(".ausboss-lora-option.tickable")) {
+      const on = ticked.includes(option.title);
+      option.classList.toggle("ticked", on);
+      option.querySelector(".ausboss-lora-tick")?.classList.toggle("on", on);
+    }
+    updateTickBar();
+  };
+
+  // The last file ticked or unticked one by one: Shift ticks the run of
+  // files shown between it and the next one, as Shift-click does on rows.
+  let tickAnchor = null;
+  const toggleTick = (name) => {
+    const at = ticked.indexOf(name);
+    if (at >= 0) ticked.splice(at, 1);
+    else ticked.push(name);
+    tickAnchor = name;
+    renderTicks();
+  };
+
+  const tickRun = (name) => {
+    const shown = [...list.querySelectorAll(".ausboss-lora-option.tickable:not(.instack)")]
+      .map((option) => option.title);
+    const from = shown.indexOf(tickAnchor);
+    const to = shown.indexOf(name);
+    if (from < 0 || to < 0) {
+      toggleTick(name);
+      return;
+    }
+    for (const file of shown.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+      if (!ticked.includes(file)) ticked.push(file);
+    }
+    tickAnchor = name;
+    renderTicks();
+  };
+  const tickWith = (event, name) => {
+    if (event.shiftKey && !event.ctrlKey && !event.metaKey) tickRun(name);
+    else toggleTick(name);
+  };
+
+  let lastPointer = null;
+  const pointerMoved = (event) => {
+    const moved = !lastPointer || lastPointer.x !== event.clientX || lastPointer.y !== event.clientY;
+    lastPointer = { x: event.clientX, y: event.clientY };
+    return moved;
+  };
+
+  const appendOption = (entry, flatIndex) => {
+    const { name, kind, label, depth, count } = entry;
+    const folder = kind === "folder";
+    const option = el("div", "ausboss-lora-option");
+    option.style.paddingLeft = `${OPTION_PAD_X + Math.min(4, depth) * 12 + (folder ? 0 : 30)}px`;
+    if (folder) appendFolderToggle(option, name);
+    option.append(nameLabel(folder ? label : displayName(state, label)));
+    option.title = name;
+    if (folder) {
+      option.classList.add("ausboss-lora-folder-option");
+      option.append(el("span", "ausboss-lora-folder-count", `全部加入 ${count}`));
+      option.title += ` — 全部加入 ${count} 个 LoRA（含子文件夹）。已在堆栈中的文件会跳过。`;
+    }
+    if (flatIndex === highlight) option.classList.add("highlight");
+    if (!folder && name === state.rows[index]?.name) option.classList.add("current");
+    // Only + LoRA ticks. A file already in the stack says so and has no box.
+    const tickable = adding && !folder && !entry.inStack;
+    if (adding && !folder && entry.inStack) {
+      option.classList.add("tickable", "instack");
+      option.append(el("span", "ausboss-lora-instack", "已在堆栈"));
+    } else if (tickable) {
+      option.classList.add("tickable");
+      const tick = el("button", "ausboss-lora-tick");
+      tick.type = "button";
+      tick.tabIndex = -1;
+      tick.title = "勾选以和其它文件一起加入";
+      tick.setAttribute("aria-label", `勾选 ${name}`);
+      tick.style.left = `${OPTION_PAD_X + Math.min(4, depth) * 12 + 8}px`;
+      if (ticked.includes(name)) {
+        tick.classList.add("on");
+        option.classList.add("ticked");
+      }
+      tick.addEventListener("click", (event) => {
+        event.stopPropagation();
+        tickWith(event, name);
+        search.focus({ preventScroll: true });
+      });
+      option.prepend(tick);
+      // Shift-click would otherwise select text across the list.
+      option.addEventListener("mousedown", (event) => { if (event.shiftKey) event.preventDefault(); });
+    }
+    option.addEventListener("pointerenter", (event) => {
+      // Pointing at a folder never chooses it for Enter or for the Left and
+      // Right keys: a pointer that only rests on the list would otherwise
+      // add a whole folder. It lights up on hover (CSS); a click or the
+      // arrow keys choose it.
+      if (folder) {
+        hideHoverThumb();
+        return;
+      }
+      // The arrow keys redraw the list under a pointer that has not moved,
+      // and the browser then reports the pointer entering the new row. Only
+      // a real move takes the highlight, or the arrows could not leave it.
+      if (!pointerMoved(event)) return;
+      if (highlight !== flatIndex) {
+        // Keep the option under the pointer intact through the click.
+        list.querySelector(".ausboss-lora-option.highlight")?.classList.remove("highlight");
+        highlight = flatIndex;
+        option.classList.add("highlight");
+      }
+      showHoverThumb(state, name, event.clientX, event.clientY);
+    });
+    option.addEventListener("pointermove", (event) => {
+      if (folder || !pointerMoved(event)) return;
+      if (highlight !== flatIndex) {
+        list.querySelector(".ausboss-lora-option.highlight")?.classList.remove("highlight");
+        highlight = flatIndex;
+        option.classList.add("highlight");
+      }
+      showHoverThumb(state, name, event.clientX, event.clientY);
+    });
+    option.addEventListener("pointerleave", hideHoverThumb);
+    option.addEventListener("click", (event) => {
+      if (tickable && (event.ctrlKey || event.metaKey || event.shiftKey)) {
+        tickWith(event, name);
+        search.focus({ preventScroll: true });
+        return;
+      }
+      pick(entry, { pointer: true });
+    });
+    option.dataset.ausbossFlat = String(flatIndex);
+    list.append(option);
+  };
+
+  const renderList = () => {
+    const entries = loraPickerEntries(names, search.value, currentFolds());
+    if (adding) {
+      const have = inStack();
+      for (const entry of entries) if (entry.kind === "file") entry.inStack = have.has(pathKey(entry.name));
+    }
+    options = entries.filter((entry) => adding || entry.kind === "file");
+    if (highlight >= 0) highlight = clampHighlight(highlight, options.length);
+    list.textContent = "";
+    hideHoverThumb();
+    if (!entries.length) {
+      list.append(el("div", "ausboss-lora-empty",
+        loadError ? "读取 LoRA 列表失败。关掉选择器再试一次。"
+          : names.length ? "没有匹配项。" : "请把 LoRA 文件放到 models/loras。"));
+      place();
+      return;
+    }
+    let flatIndex = 0;
+    for (const entry of entries) {
+      if (!adding && entry.kind === "folder") {
+        const heading = el("div", "ausboss-lora-folder");
+        appendFolderToggle(heading, entry.name);
+        heading.append(nameLabel(entry.label));
+        heading.style.paddingLeft = `${OPTION_PAD_X + Math.min(4, entry.depth) * 12}px`;
+        heading.title = entry.name;
+        list.append(heading);
+      } else appendOption(entry, flatIndex++);
+    }
+    fitLabels(list.querySelectorAll(".ausboss-lora-label"));
+    list.querySelector(`[data-ausboss-flat="${highlight}"]`)?.scrollIntoView({ block: "nearest" });
+    if (adding) updateTickBar();
+    place();
+  };
+
+  search.addEventListener("input", () => { highlight = -1; searchCollapsed = new Set(); renderList(); });
+  search.addEventListener("keydown", (event) => {
+    keepKeyInField(event);
+    if (isAppShortcut(event)) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      highlight = moveHighlight(highlight, event.key === "ArrowDown" ? 1 : -1, options.length);
+      renderList();
+    } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight")
+        && options[highlight]?.kind === "folder") {
+      event.preventDefault();
+      toggleFolder(options[highlight].name, event.key === "ArrowLeft");
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      highlight = event.key === "Home" ? 0 : options.length - 1;
+      renderList();
+    } else if (event.key === "Enter" && adding && (event.ctrlKey || event.metaKey || event.shiftKey)) {
+      // Ctrl+Enter ticks the highlighted file and Shift+Enter the run up
+      // to it, as Ctrl-click and Shift-click do.
+      event.preventDefault();
+      const entry = options[highlight];
+      if (entry?.kind === "file" && !entry.inStack) tickWith(event, entry.name);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      // With files ticked, Enter adds them all.
+      if (adding && ticked.length) {
+        addTicked();
+        return;
+      }
+      // Typing a filename then Enter keeps picking one file. A folder is
+      // selected deliberately by a click or by moving the highlight to it.
+      pick(options[highlight] ?? options.find((entry) => entry.kind === "file"));
+    }
+  });
+
+  fetchLoraList()
+    .then((fetched) => {
+      if (!pop.isConnected) return;
+      names = fetched;
+      folders = new Map(loraFolders(fetched).map(({ folder, names }) => [folder, names]));
+      state.available = fetched;
+      state.nameStatus = new Map();
+      widestPickerLabel = widestLabel(names.map((name) => displayName(state, name))) + (adding ? 110 : 30);
+      pop.style.width = `${fitWidth()}px`;
+      if (!adding) highlight = loraPickerEntries(names, "", currentFolds()).filter((entry) => entry.kind === "file")
+        .findIndex((entry) => entry.name === state.rows[index]?.name);
+      renderList();
+    })
+    .catch(() => {
+      if (!pop.isConnected) return;
+      loadError = true;
+      renderList();
+    });
+}
+
+// ---------- Civitai lookup ----------
+
+// One click, one file: the server hashes the LoRA, this browser asks Civitai
+// about that hash, and the server saves the answer beside the LoRA after
+// checking it describes the same file. Returns false when Civitai does not
+// know the file (unpublished or hidden models answer 404). `picture` is the
+// Civitai picture gear option ("off", "PG-13" or "any").
+async function lookUpOnCivitai(serverName, picture = "PG-13") {
+  const hashed = await (await api.fetchApi(
+    `/ausboss/lora/hash?name=${encodeURIComponent(serverName)}`
+  )).json();
+  if (!hashed.ok) throw new Error(hashed.error || "算不出这个 LoRA 文件的哈希。");
+  const response = await fetch(civitaiByHashUrl(hashed.sha256), {
+    credentials: "omit", redirect: "error", referrerPolicy: "no-referrer", cache: "no-store",
+  });
+  if (response.status === 404) return false;
+  if (!response.ok) throw new Error(`Civitai 返回了 ${response.status}.`);
+  const info = parseCivitaiBody(await response.text());
+  const saved = await (await api.fetchApi("/ausboss/lora/civitai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: serverName, info }),
+  })).json();
+  if (!saved.ok) throw new Error(saved.error || "保存 Civitai 信息失败。");
+  if (picture !== "off") {
+    await saveCivitaiPicture(serverName, info, picture === "any").catch((error) =>
+      loraToast(`保存了 Civitai 信息，但图片没存下来：${civitaiFailureText(error)}`));
+  }
+  return true;
+}
+
+// The LoRA's first picture on Civitai, saved beside it as its preview. The
+// browser downloads a 450-pixel copy from Civitai's picture server without
+// cookies; the server checks it is a picture and never replaces one.
+async function saveCivitaiPicture(serverName, info, anyRating) {
+  const picture = pickCivitaiPicture(info, anyRating);
+  if (!picture) {
+    loraToast(anyRating
+      ? "Civitai 上没有这个 LoRA 的图片可保存。"
+      : "Civitai 上没有这个 LoRA 评为 PG-13 或以内的图片。");
+    return;
+  }
+  const response = await fetch(smallPictureUrl(picture.url), {
+    credentials: "omit", referrerPolicy: "no-referrer", cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`Civitai 的图片服务器返回了 ${response.status}.`);
+  if (!isCivitaiAddress(response.url)) throw new Error("图片不是从 Civitai 来的。");
+  if (!(response.headers.get("content-type") || "").startsWith("image/")) {
+    throw new Error("Civitai 没有返回图片。");
+  }
+  const blob = await response.blob();
+  if (blob.size > MAX_PICTURE_BYTES) throw new Error("图片太大了。");
+  const saved = await (await api.fetchApi(`/ausboss/lora/picture?name=${encodeURIComponent(serverName)}`, {
+    method: "POST",
+    headers: { "Content-Type": blob.type || "application/octet-stream" },
+    body: blob,
+  })).json();
+  if (!saved.ok) throw new Error(saved.error || "保存图片失败。");
+  pictureSaved();
+}
+
+// ---------- info card ----------
+
+function openInfo(state, index, anchor) {
+  const row = state.rows[index];
+  if (!row.name) return;
+  // Every server call in the card goes through the resolved name, so the
+  // card works for a moved file too.
+  const serverName = effectiveLoraName(state, row.name);
+  const card = el("div", "ausboss-lora-card");
+  card.append(el("div", "ausboss-lora-empty", "加载中..."));
+  openPopup(card, anchor.getBoundingClientRect());
+
+  const render = (info) => {
+    card.textContent = "";
+    const image = el("img");
+    image.alt = "";
+    image.src = thumbUrl(serverName);
+    image.addEventListener("error", () => image.remove());
+    if (info.has_preview) card.append(image);
+    card.append(el("h4", "", info.civitai_title || rowLabel(state, row.name)));
+    if (info.base_model) card.append(el("div", "ausboss-lora-meta", `基础模型：${info.base_model}`));
+    const size = formatFileSize(info.size_bytes);
+    if (size) {
+      const when = Number.isFinite(info.mtime)
+        ? ` · 修改于 ${new Date(info.mtime * 1000).toLocaleDateString()}`
+        : "";
+      card.append(el("div", "ausboss-lora-meta", `${size}${when}`));
+    }
+    if (Number.isInteger(info.civitai_model_id)) {
+      const link = el("a", "ausboss-lora-civitai-link", "在 Civitai 上查看 ↗");
+      const version = Number.isInteger(info.civitai_version_id)
+        ? `?modelVersionId=${info.civitai_version_id}` : "";
+      link.href = `https://civitai.com/models/${info.civitai_model_id}${version}`;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      card.append(link);
+    }
+    // Civitai info but no picture: say how to get one.
+    if (info.has_civitai && !info.has_preview && state.settings?.civitai_lookup !== false
+      && state.settings?.civitai_picture !== "off") {
+      card.append(el("div", "ausboss-lora-meta", "还没有预览图。点「刷新 Civitai 信息」可以存一张。"));
+    }
+
+    // One click can change other chips too: the same word can sit in two
+    // lists, and a phrase with commas shares its words with shorter chips.
+    const chipRefreshers = [];
+    const chipSection = (label, words) => {
+      if (!words?.length) return;
+      card.append(el("div", "ausboss-lora-meta", label));
+      const chips = el("div", "ausboss-lora-chips");
+      for (const word of words) {
+        const chip = el("button", "ausboss-lora-chip", word);
+        chip.type = "button";
+        chip.title = "开关这个触发词是否进入该行的输出";
+        const refresh = () => chip.classList.toggle(
+          "active", hasTrigger(state.rows[index].triggers, word)
+        );
+        refresh();
+        chipRefreshers.push(refresh);
+        chip.addEventListener("click", () => {
+          const rows = state.rows.map((entry, i) =>
+            i === index ? { ...entry, triggers: toggleTrigger(entry.triggers, word) } : entry
+          );
+          commitRows(state, rows);
+          for (const refreshChip of chipRefreshers) refreshChip();
+        });
+        chips.append(chip);
+      }
+      card.append(chips);
+    };
+    chipSection("来自文件", info.file_triggers);
+    chipSection("来自 Civitai", info.civitai_triggers);
+    chipSection("你添加的", info.custom_triggers);
+
+    if (state.settings?.civitai_lookup !== false) {
+      const fetchButton = el(
+        "button", "ausboss-lora-add ausboss-lora-fetch", civitaiButtonLabel(info.has_civitai)
+      );
+      fetchButton.type = "button";
+      fetchButton.title = "从这个浏览器向 civitai.com 查询这一个文件。";
+      fetchButton.addEventListener("click", async () => {
+        fetchButton.disabled = true;
+        fetchButton.textContent = "获取中...";
+        try {
+          const picture = info.has_preview ? "off" : (state.settings?.civitai_picture ?? "PG-13");
+          if (!(await lookUpOnCivitai(serverName, picture))) {
+            fetchButton.textContent = "Civitai 上没找到";
+            return;
+          }
+          load();
+        } catch (error) {
+          fetchButton.textContent = "Civitai 查询失败";
+          fetchButton.title = civitaiFailureText(error);
+          loraToast(fetchButton.title);
+        }
+      });
+      card.append(fetchButton);
+    }
+
+    const range = el("div", "ausboss-lora-range");
+    range.append(el("span", "ausboss-lora-meta", "建议强度"));
+    // Each bound is optional: erase it for "any". Saved when a gesture ends.
+    const bounds = {};
+    const saveRange = async () => {
+      const payload = {
+        name: serverName,
+        words: info.custom_triggers || [],
+        min: bounds.min.get(),
+        max: bounds.max.get(),
+      };
+      try {
+        await api.fetchApi("/ausboss/lora/triggers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        rangeCache.delete(row.name);
+        ensureRange(state, row.name);
+      } catch {}
+    };
+    for (const key of ["min", "max"]) {
+      bounds[key] = makeScrubInput({
+        value: info.range?.[key] ?? null, allowEmpty: true, emptyStart: key === "min" ? 0 : 1,
+        placeholder: "any", min: STRENGTH_MIN, max: STRENGTH_MAX,
+        step: 0.05, fineStep: 0.01, decimals: 2, width: 76,
+        title: `Suggested ${key === "min" ? "lowest" : "highest"} 强度；留空表示不限。`,
+        onSettle: saveRange,
+      });
+    }
+    range.append(bounds.min.root, el("span", "ausboss-lora-meta", "to"), bounds.max.root);
+    range.title = "这个 LoRA 的建议范围；超出范围的强度会在该行显示为橙色。";
+    card.append(range);
+
+    const custom = el("div", "ausboss-lora-custom");
+    const wordInput = el("input");
+    wordInput.placeholder = "添加自己的触发词...";
+    wordInput.addEventListener("keydown", (event) => {
+      keepKeyInField(event);
+      if (event.key === "Enter" && !isAppShortcut(event)) addButton.click();
+    });
+    const addButton = el("button", "ausboss-lora-add", "Add");
+    addButton.type = "button";
+    addButton.addEventListener("click", async () => {
+      const word = wordInput.value.trim();
+      if (!word) return;
+      wordInput.value = "";
+      const words = [...(info.custom_triggers || []), word];
+      try {
+        await api.fetchApi("/ausboss/lora/triggers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: serverName, words }),
+        });
+      } catch {}
+      const rows = state.rows.map((entry, i) =>
+        i === index ? { ...entry, triggers: toggleTrigger(entry.triggers, word) } : entry
+      );
+      commitRows(state, rows);
+      load();
+    });
+    custom.append(wordInput, addButton);
+    card.append(custom);
+  };
+
+  const load = () => {
+    api.fetchApi(`/ausboss/lora/info?name=${encodeURIComponent(serverName)}`)
+      .then((response) => response.json())
+      .then((data) => {
+        if (!data.ok) throw new Error(data.error);
+        render(data.info);
+      })
+      .catch(() => {
+        card.textContent = "";
+        card.append(el("div", "ausboss-lora-empty", "读取 LoRA 信息失败。"));
+      });
+  };
+  load();
+}
+
+// ---------- templates ----------
+
+const TEMPLATES_KEY = "AusBoss.lora_loader.templates";
+
+function loadTemplates() {
+  try {
+    return parseTemplates(window.localStorage?.getItem(TEMPLATES_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveTemplates(list) {
+  try {
+    window.localStorage?.setItem(TEMPLATES_KEY, JSON.stringify(list));
+  } catch {}
+}
+
+function openTemplates(state, anchor) {
+  const menu = el("div", "ausboss-lora-menu ausboss-lora-templates");
+  const rebuild = () => {
+    menu.textContent = "";
+    const saveRow = el("div", "ausboss-lora-custom");
+    const nameInput = el("input");
+    nameInput.placeholder = "另存为...";
+    nameInput.title = "给这个堆栈起名；用已有名字保存会覆盖它";
+    const saveButton = el("button", "ausboss-lora-add", "Save");
+    saveButton.type = "button";
+    const save = () => {
+      const template = templateFromRows(nameInput.value, state.rows);
+      if (!template) return;
+      saveTemplates(upsertTemplate(loadTemplates(), template));
+      nameInput.value = "";
+      rebuild();
+    };
+    saveButton.addEventListener("click", save);
+    nameInput.addEventListener("keydown", (event) => {
+      keepKeyInField(event);
+      if (event.key === "Enter" && !isAppShortcut(event)) save();
+    });
+    saveRow.append(nameInput, saveButton);
+    menu.append(saveRow);
+
+    const templates = loadTemplates();
+    if (!templates.length) {
+      menu.append(el("div", "ausboss-lora-empty", "还没有保存的模板。"));
+      return;
+    }
+    for (const template of templates) {
+      const row = el("div", "ausboss-lora-template-row");
+      const apply = el("button", "", template.name);
+      apply.type = "button";
+      apply.title = `替换这个节点的所有行，改用 "${template.name}" (${template.rows.length} LoRA${template.rows.length === 1 ? "" : "s"})`;
+      apply.addEventListener("click", () => {
+        closePopup();
+        commitRows(state, applyTemplate(template), { structural: true });
+        fitNode(state);
+      });
+      const remove = el("button", "ausboss-lora-template-x", "×");
+      remove.type = "button";
+      remove.title = `删除「${template.name}」`;
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        saveTemplates(removeTemplate(loadTemplates(), template.name));
+        rebuild();
+      });
+      row.append(apply, remove);
+      menu.append(row);
+    }
+  };
+  rebuild();
+  openPopup(menu, anchor.getBoundingClientRect(), { width: 240 });
+  menu.querySelector("input")?.focus();
+}
+
+// ---------- row menu ----------
+
+function menuItem(menu, label, action, disabled = false) {
+  const button = el("button", "", label);
+  button.type = "button";
+  button.disabled = disabled;
+  button.addEventListener("click", () => { closePopup(); action(); });
+  menu.append(button);
+  return button;
+}
+
+// A change that can add or empty a group changes the node's height.
+function commitGroups(state, rows) {
+  commitRows(state, rows, { structural: true });
+  clearSelection(state);
+  fitNode(state);
+}
+
+// The red, trash-marked last item of both right-click menus: clears every
+// row of this node after a confirmation.
+function addDeleteAll(state, menu, event) {
+  menuItem(menu, "🗑 删除全部 LoRA…", () => {
+    const confirmation = el("div", "ausboss-lora-menu");
+    const message = el("div", "ausboss-lora-empty",
+      `把这个节点上的全部 ${state.rows.length} 行 LoRA 都移除？磁盘上的文件会保留。`);
+    const cancel = el("button", "", "取消 — 保留 LoRA");
+    const remove = el("button", "ausboss-lora-danger", "🗑 是，删除全部行");
+    cancel.type = remove.type = "button";
+    cancel.addEventListener("click", closePopup);
+    remove.addEventListener("click", () => {
+      closePopup();
+      commitGroups(state, []);
+      notifyAusbossChange();
+    });
+    confirmation.append(message, cancel, remove);
+    openPopup(confirmation,
+      { left: event.clientX, top: event.clientY, bottom: event.clientY, width: 0 },
+      { width: 270 });
+    cancel.focus();
+  }).classList.add("ausboss-lora-danger", "ausboss-lora-delete-all");
+}
+
+function openRowMenu(state, index, event) {
+  const menu = el("div", "ausboss-lora-menu");
+  const item = (label, action, disabled = false) => menuItem(menu, label, action, disabled);
+  const row = state.rows[index];
+  const ids = menuRowIds(state, index);
+  const count = ids.length;
+  const chosen = state.rows.filter((entry) => ids.includes(entry.id));
+  const sameGroup = chosen.every((entry) => entry.group && entry.group === chosen[0].group)
+    ? chosen[0].group : "";
+  item(count > 1 ? `把这 ${count} LoRAs` : "把这个 LoRA 编组", () => {
+    const name = uniqueGroupName(state.rows);
+    commitGroups(state, groupRows(state.rows, ids, name));
+    startGroupRename(state, name);
+  });
+  const others = groupNames(state.rows).filter((name) => name !== sameGroup);
+  if (others.length) {
+    menu.append(el("div", "ausboss-lora-menu-sub", count > 1 ? `Move ${count} 移到分组` : "移到分组"));
+    for (const name of others) {
+      item(name, () => commitGroups(state, moveRowsToGroup(state.rows, ids, name))).classList.add("indent");
+    }
+  }
+  if (sameGroup) {
+    item(count > 1 ? `Take ${count} 移出 ${sameGroup}` : `移出 ${sameGroup}`,
+      () => commitGroups(state, ungroupRows(state.rows, ids)));
+  }
+  menu.append(el("div", "ausboss-lora-menu-rule"));
+  const insertEmpty = (position) => {
+    const strength = roundStrength(state.settings?.default_strength ?? 1);
+    const rows = state.rows.slice();
+    // A row added next to a grouped one joins its group.
+    const blank = { ...newRow(), strength, strength_clip: strength };
+    if (row.group) blank.group = row.group;
+    rows.splice(position, 0, blank);
+    commitRows(state, rows, { structural: true });
+    fitNode(state);
+  };
+  item("在上方插入空行 LoRA", () => insertEmpty(index));
+  item("在下方插入空行 LoRA", () => insertEmpty(index + 1));
+  item("上移", () => commitGroups(state, moveRowInStack(state.rows, index, -1)),
+    index === 0 && !row.group);
+  item("下移", () => commitGroups(state, moveRowInStack(state.rows, index, 1)),
+    index === state.rows.length - 1 && !row.group);
+  item("Duplicate", () => {
+    const copy = { ...state.rows[index], id: newRow().id };
+    const rows = state.rows.slice();
+    rows.splice(index + 1, 0, copy);
+    commitRows(state, rows, { structural: true });
+    fitNode(state);
+  });
+  item(count > 1 ? `移除这 ${count} LoRAs` : "移除这个 LoRA", () => {
+    commitGroups(state, state.rows.filter((entry) => !ids.includes(entry.id)));
+  }).classList.add("ausboss-lora-danger");
+  addDeleteAll(state, menu, event);
+  openPopup(menu, { left: event.clientX, top: event.clientY, bottom: event.clientY, width: 0 });
+}
+
+// Right-click on the stack around the rows: what applies to the whole stack.
+function openStackMenu(state, event) {
+  const menu = el("div", "ausboss-lora-menu");
+  const item = (label, action, disabled = false) => menuItem(menu, label, action, disabled);
+  const add = state.panel.querySelector(".ausboss-lora-add, .ausboss-lora-blank");
+  item("+ 添加 LoRA…", () => openPicker(state, null, add), !add);
+  const ids = state.rows.filter((row) => selectedIds(state).has(row.id)).map((row) => row.id);
+  if (ids.length) {
+    item(ids.length > 1 ? `把选中的 ${ids.length} 个 LoRA 编组` : "把选中的 LoRA 编组", () => {
+      const name = uniqueGroupName(state.rows);
+      commitGroups(state, groupRows(state.rows, ids, name));
+      startGroupRename(state, name);
+    });
+  } else if (state.rows.length) {
+    item("编组 LoRA：先用 Ctrl 点击选行", () => {}, true);
+  }
+  const groups = groupNames(state.rows);
+  if (groups.length) {
+    const folded = foldedGroups(state);
+    const allFolded = groups.every((name) => folded.has(name));
+    item(allFolded ? "展开全部分组" : "折叠全部分组", () => {
+      saveFolded(state, new Set(allFolded ? [] : groups));
+      renderRows(state);
+      fitNode(state);
+      notifyAusbossChange();
+    });
+  }
+  if (state.rows.length) addDeleteAll(state, menu, event);
+  openPopup(menu, { left: event.clientX, top: event.clientY, bottom: event.clientY, width: 0 });
+}
+
+function openGroupMenu(state, group, event) {
+  const menu = el("div", "ausboss-lora-menu");
+  const item = (label, action, disabled = false) => menuItem(menu, label, action, disabled);
+  const inside = state.rows.filter((row) => row.group === group);
+  const members = inside.map((row) => row.id);
+  const folded = foldedGroups(state).has(group);
+  const setAll = (enabled) => {
+    const rows = setGroupEnabled(state.rows, group, enabled);
+    state.toggleSnapshot = snapshotEnabled(rows);
+    commitRows(state, rows, { structural: true });
+  };
+  item("重命名分组", () => startGroupRename(state, group));
+  item(folded ? "展开分组" : "折叠分组", () => setGroupFolded(state, group, !folded));
+  item("打开组内全部 LoRA", () => setAll(true), inside.every((row) => row.enabled));
+  item("关闭组内全部 LoRA", () => setAll(false), inside.every((row) => !row.enabled));
+  item("分组上移", () => commitGroups(state, moveGroup(state.rows, group, -1)),
+    state.rows[0]?.group === group);
+  item("分组下移", () => commitGroups(state, moveGroup(state.rows, group, 1)),
+    state.rows.at(-1)?.group === group);
+  item("取消编组（保留 LoRA）", () => commitGroups(state, ungroupRows(state.rows, members)));
+  item(`删除分组及其中的 ${members.length} LoRA${members.length === 1 ? "" : "s"}`,
+    () => commitGroups(state, state.rows.filter((row) => row.group !== group)))
+    .classList.add("ausboss-lora-danger");
+  addDeleteAll(state, menu, event);
+  openPopup(menu, { left: event.clientX, top: event.clientY, bottom: event.clientY, width: 0 });
+}
+
+// ---------- groups ----------
+
+// Folded groups, by name, kept with the node so a workflow opens the way
+// it was saved.
+function foldedGroups(state) {
+  const saved = state.node.properties?.[FOLDED_PROPERTY];
+  return new Set(Array.isArray(saved) ? saved.filter((name) => typeof name === "string") : []);
+}
+
+function saveFolded(state, folded, rows = state.rows) {
+  const live = new Set(groupNames(rows));
+  const names = [...folded].filter((name) => live.has(name));
+  state.node.properties ??= {};
+  if (names.length) state.node.properties[FOLDED_PROPERTY] = names;
+  else delete state.node.properties[FOLDED_PROPERTY];
+}
+
+function setGroupFolded(state, group, folded) {
+  const names = foldedGroups(state);
+  if (folded) names.add(group);
+  else names.delete(group);
+  saveFolded(state, names);
+  renderRows(state);
+  fitNode(state);
+  notifyAusbossChange();
+}
+
+function groupHeaderElement(state, group) {
+  return [...state.panel.querySelectorAll(".ausboss-lora-ghead")]
+    .find((head) => head.dataset.group === group) ?? null;
+}
+
+// The name turns into a text box in place. Enter or a click away keeps the
+// new name; Escape keeps the old one.
+function startGroupRename(state, from) {
+  const label = groupHeaderElement(state, from)?.querySelector(".ausboss-lora-gname");
+  if (!label) return;
+  const input = el("input", "ausboss-lora-gname-input");
+  input.value = from;
+  input.maxLength = MAX_GROUP_NAME;
+  input.setAttribute("aria-label", "分组名称");
+  label.replaceWith(input);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = (keep) => {
+    if (done) return;
+    done = true;
+    const to = groupName(input.value);
+    if (!keep || !to || to === from) {
+      renderRows(state);
+      return;
+    }
+    if (hasGroupName(state.rows, to, from)) {
+      loraToast(`已经有叫 "${to}"。换个名字。`);
+      renderRows(state);
+      return;
+    }
+    const rows = renameGroup(state.rows, from, to);
+    const folded = foldedGroups(state);
+    if (folded.delete(from)) folded.add(to);
+    saveFolded(state, folded, rows);
+    renameOwnedGroup(state, from, to);
+    commitRows(state, rows, { structural: true });
+  };
+  input.addEventListener("keydown", (event) => {
+    keepKeyInField(event);
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+function groupHeader(state, stack, item, folded) {
+  const { group, on, total } = item;
+  const off = item.off;
+  const head = el("div", `ausboss-lora-ghead${folded ? " folded" : ""}${off || !on ? " off" : ""}`);
+  head.dataset.group = group;
+
+  const grip = el("button", "ausboss-lora-grip");
+  grip.type = "button";
+  grip.title = "拖动可整体移动分组";
+  grip.innerHTML = gripIconSvg();
+  // A click on the lock of a group a switch sets takes the group over.
+  grip.addEventListener("click", () => {
+    if (grip.dataset.ausbossDragged) {
+      delete grip.dataset.ausbossDragged;
+      return;
+    }
+    takeGroupOver(state, group);
+  });
+  grip.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    hideHoverThumb();
+    const members = new Set(state.rows.filter((row) => row.group === group).map((row) => row.id));
+    const elements = [head, ...[...stack.querySelectorAll(".ausboss-lora-row")]
+      .filter((element) => members.has(element.dataset.rowId))];
+    startStackDrag(state, stack, elements, grip, event, { kind: "group", group, label: group });
+  });
+
+  // The group's own switch: off stops every LoRA in it, and each keeps its
+  // own switch for when the group comes back on.
+  const toggle = el("button", `ausboss-lora-toggle${off ? "" : " on"}`);
+  toggle.type = "button";
+  toggle.title = "打开或关闭这个分组。组里每个 LoRA 仍保留各自的开关。";
+  toggle.setAttribute("role", "switch");
+  toggle.setAttribute("aria-checked", String(!off));
+  toggle.addEventListener("click", () => {
+    const rows = setGroupOff(state.rows, group, !off);
+    state.toggleSnapshot = snapshotEnabled(rows);
+    commitRows(state, rows, { structural: true });
+  });
+
+  const fold = el("button", "ausboss-lora-gfold");
+  fold.type = "button";
+  fold.innerHTML = chevronIconSvg(false);
+  fold.title = folded ? `展开 ${group}` : `折叠 ${group}`;
+  fold.setAttribute("aria-label", fold.title);
+  fold.setAttribute("aria-expanded", String(!folded));
+  fold.addEventListener("click", () => setGroupFolded(state, group, !folded));
+
+  const icon = el("span", "ausboss-lora-gicon");
+  icon.innerHTML = folderIconSvg();
+  const name = el("span", "ausboss-lora-gname", group);
+  name.title = `${group}。双击重命名；右键查看更多。`;
+  head.addEventListener("dblclick", (event) => {
+    if (event.target.closest("button, input")) return;
+    event.stopPropagation();
+    startGroupRename(state, group);
+  });
+  head.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openGroupMenu(state, group, event);
+  });
+  head.append(grip, toggle, fold, icon, name,
+    el("span", "ausboss-lora-gcount", off ? "分组已关" : `${on}/${total} on`));
+  return head;
+}
+
+// Where a dragged row would land. Over a group's header it goes in at the
+// group's end, and between a group's rows it goes in there. Above the
+// header or below the group's last row it lands outside the group.
+function rowDropTarget(state, stack, id, y) {
+  const items = [...stack.querySelectorAll(".ausboss-lora-row, .ausboss-lora-ghead")]
+    .filter((item) => item.dataset.rowId !== id && !item.classList.contains("folded-away"));
+  const box = stack.getBoundingClientRect();
+  const left = box.left + STACK_PADDING;
+  for (const item of items) {
+    if (!item.classList.contains("ausboss-lora-ghead")) continue;
+    const rect = item.getBoundingClientRect();
+    // The header's top third is the gap above the group.
+    if (y >= rect.top + rect.height / 3 && y <= rect.bottom + 2) return { header: item, group: item.dataset.group, beforeId: null };
+  }
+  let at = items.findIndex((item) => {
+    const rect = item.getBoundingClientRect();
+    return y < rect.top + rect.height / 2;
+  });
+  if (at < 0) at = items.length;
+  const above = items[at - 1];
+  const below = items[at];
+  const lineY = below ? below.getBoundingClientRect().top - ROW_GAP / 2
+    : above ? above.getBoundingClientRect().bottom + ROW_GAP / 2 : box.top + STACK_PADDING;
+  const rowOf = (item) => item?.classList.contains("ausboss-lora-row")
+    ? state.rows.find((row) => row.id === item.dataset.rowId) : null;
+  const belowRow = rowOf(below);
+  if (belowRow?.group) return { group: belowRow.group, beforeId: belowRow.id, lineY, lineX: left + GROUP_INDENT };
+  let beforeId = belowRow?.id ?? null;
+  if (below && !belowRow) {
+    // Above a header: before that group's first row. Above its own group's
+    // header, the dragged row may be that first row: it stays where it is.
+    const own = state.rows.findIndex((row) => row.id === id);
+    beforeId = state.rows.find((row) => row.group === below.dataset.group && row.id !== id)?.id
+      ?? state.rows[own + 1]?.id ?? null;
+  }
+  return { group: "", beforeId, lineY, lineX: left };
+}
+
+// Where a dragged group would land: only between whole items, never
+// inside another group.
+function groupDropTarget(state, stack, group, y) {
+  const blocks = [];
+  for (const item of stack.querySelectorAll(".ausboss-lora-row, .ausboss-lora-ghead")) {
+    if (item.classList.contains("folded-away")) continue;
+    const rect = item.getBoundingClientRect();
+    if (item.classList.contains("ausboss-lora-ghead")) {
+      const name = item.dataset.group;
+      blocks.push({ group: name, top: rect.top, bottom: rect.bottom,
+        firstId: state.rows.find((row) => row.group === name)?.id });
+      continue;
+    }
+    const row = state.rows.find((entry) => entry.id === item.dataset.rowId);
+    if (row?.group && blocks.length) blocks.at(-1).bottom = rect.bottom;
+    else if (row) blocks.push({ group: "", top: rect.top, bottom: rect.bottom, firstId: row.id });
+  }
+  const others = blocks.filter((block) => block.group !== group);
+  let at = others.findIndex((block) => y < (block.top + block.bottom) / 2);
+  if (at < 0) at = others.length;
+  const box = stack.getBoundingClientRect();
+  const lineY = others[at] ? others[at].top - ROW_GAP / 2
+    : others[at - 1] ? others[at - 1].bottom + ROW_GAP / 2 : box.top + STACK_PADDING;
+  return { beforeId: others[at]?.firstId ?? null, lineY, lineX: box.left + STACK_PADDING };
+}
+
+// Drag a row by its grip, or a group by its header's grip. A line shows
+// where it will land, or the group header it will join lights up. The
+// stack changes once, on release, so an abandoned drag changes nothing.
+function startStackDrag(state, stack, elements, handle, event, what) {
+  const abort = new AbortController();
+  const startX = event.clientX;
+  const startY = event.clientY;
+  let ghost = null;
+  let line = null;
+  let target = null;
+  const clearDrop = () => stack.querySelectorAll(".ausboss-lora-ghead.drop")
+    .forEach((head) => head.classList.remove("drop"));
+  const show = (x, y) => {
+    clearDrop();
+    target = what.kind === "row" ? rowDropTarget(state, stack, what.id, y)
+      : groupDropTarget(state, stack, what.group, y);
+    ghost.style.left = `${x + 14}px`;
+    ghost.style.top = `${y - 12}px`;
+    if (target.header) {
+      target.header.classList.add("drop");
+      line.hidden = true;
+      return;
+    }
+    const box = stack.getBoundingClientRect();
+    line.hidden = false;
+    line.style.left = `${target.lineX}px`;
+    line.style.width = `${Math.max(12, box.right - STACK_PADDING - target.lineX)}px`;
+    line.style.top = `${target.lineY - 1}px`;
+  };
+  const finish = (commit) => {
+    abort.abort();
+    if (!ghost) return;
+    ghost.remove();
+    line.remove();
+    clearDrop();
+    for (const element of elements) element.classList.remove("dragging");
+    if (!commit || !target) return;
+    const rows = what.kind === "row" ? placeRow(state.rows, what.id, target)
+      : placeGroup(state.rows, what.group, target.beforeId);
+    if (serializeRows(rows) === serializeRows(state.rows)) return;
+    handle.dataset.ausbossDragged = "1";
+    if (groupNames(rows).length !== groupNames(state.rows).length) commitGroups(state, rows);
+    else commitRows(state, rows, { structural: true });
+  };
+  // The gesture listens on the window, capture phase, like every drag on
+  // this panel: nothing is reparented while it runs.
+  window.addEventListener("pointermove", (moveEvent) => {
+    if (!ghost) {
+      if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) < 4) return;
+      for (const element of elements) element.classList.add("dragging");
+      ghost = el("div", "ausboss-lora-dragghost", what.label);
+      line = el("div", "ausboss-lora-dropline");
+      document.body.append(ghost, line);
+    }
+    show(moveEvent.clientX, moveEvent.clientY);
+  }, { capture: true, signal: abort.signal });
+  window.addEventListener("pointerup", () => finish(true), { capture: true, signal: abort.signal });
+  window.addEventListener("pointercancel", () => finish(false), { capture: true, signal: abort.signal });
+}
+
+// ---------- selection ----------
+
+// Ctrl/Cmd-click adds or drops one row, Shift-click a run; the row menu
+// then acts on all of them. A plain click anywhere clears it.
+function selectedIds(state) {
+  state.selected ??= new Set();
+  return state.selected;
+}
+
+function paintSelection(state) {
+  const chosen = selectedIds(state);
+  state.panel.querySelectorAll(".ausboss-lora-row").forEach((element) => {
+    element.classList.toggle("selected", chosen.has(element.dataset.rowId));
+  });
+}
+
+function clearSelection(state) {
+  if (!state.selected?.size) return;
+  state.selected.clear();
+  paintSelection(state);
+}
+
+function selectRow(state, id, run) {
+  const chosen = selectedIds(state);
+  const order = state.rows.map((row) => row.id);
+  const from = order.indexOf(state.selectAnchor);
+  if (run && from >= 0) {
+    const to = order.indexOf(id);
+    for (const rowId of order.slice(Math.min(from, to), Math.max(from, to) + 1)) chosen.add(rowId);
+  } else {
+    if (chosen.has(id)) chosen.delete(id);
+    else chosen.add(id);
+    state.selectAnchor = id;
+  }
+  paintSelection(state);
+}
+
+// The rows a row's menu acts on: the whole selection when the row is in it.
+function menuRowIds(state, index) {
+  const id = state.rows[index]?.id;
+  const chosen = selectedIds(state);
+  if (chosen.size > 1 && chosen.has(id)) {
+    return state.rows.filter((row) => chosen.has(row.id)).map((row) => row.id);
+  }
+  clearSelection(state);
+  return [id];
+}
+
+let selectionWatched = false;
+function watchSelections() {
+  if (selectionWatched) return;
+  selectionWatched = true;
+  document.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (activePopup?.element.contains(event.target)) return;
+    for (const state of liveCards) clearSelection(state);
+  }, true);
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") for (const state of liveCards) clearSelection(state);
+  }, true);
+}
+
+// ---------- rows a switch sets ----------
+
+// Every Workflow Switches node on a graph, with its settings.
+function switchBoards(graph) {
+  return (graph?.nodes ?? graph?._nodes ?? [])
+    .filter((node) => node?.type === SWITCHES_CLASS)
+    .map((node) => ({ node, settings: node.properties?.[SWITCHES_PROPERTY] }));
+}
+
+// The switches that set one row. A switch addresses the node that keeps the
+// rows (state.owner): the loader itself, or the box that holds them.
+function rowOwners(state, row) {
+  const owner = state.owner;
+  if (!owner?.node?.graph || !row?.name) return [];
+  return stackRowOwners(switchBoards(owner.node.graph), owner.node.id, owner.name, row.name);
+}
+
+function ownerNames(owners) {
+  return [...new Set(owners.map((owner) => `"${owner.title}"`))].join(", ");
+}
+
+// The switches that set one group of the stack (its own on/off).
+function groupOwners(state, group) {
+  const owner = state.owner;
+  if (!owner?.node?.graph || !group) return [];
+  return stackGroupOwners(switchBoards(owner.node.graph), owner.node.id, owner.name, group);
+}
+
+// Put a lock in the grip's place on every row and group a switch sets.
+// Cheap to call often: the rows are only touched when who sets them changed.
+function refreshLocks(state) {
+  const owners = state.rows.map((row) => rowOwners(state, row));
+  const groups = groupNames(state.rows).map((group) => [group, ownerNames(groupOwners(state, group))]);
+  const signature = owners.map(ownerNames).join("|") + "#" + groups.map((pair) => pair.join("=")).join("|");
+  if (signature === state.lockSignature) return;
+  state.lockSignature = signature;
+  const groupLocks = new Map(groups);
+  state.panel.querySelectorAll(".ausboss-lora-ghead").forEach((head) => {
+    const grip = head.querySelector(".ausboss-lora-grip");
+    if (!grip) return;
+    const names = groupLocks.get(head.dataset.group) ?? "";
+    head.classList.toggle("owned", Boolean(names));
+    grip.classList.toggle("locked", Boolean(names));
+    grip.innerHTML = names ? lockIconSvg() : gripIconSvg();
+    grip.title = names
+      ? `这个分组由 ${names}。组里的 LoRA 仍归你所有。点锁接手这个分组，之后开关就不管它了。拖动可整体移动分组。`
+      : "拖动可整体移动分组";
+  });
+  const rows = state.panel.querySelectorAll(".ausboss-lora-row");
+  rows.forEach((rowElement, index) => {
+    const grip = rowElement.querySelector(".ausboss-lora-grip");
+    if (!grip) return;
+    const names = ownerNames(owners[index] ?? []);
+    rowElement.classList.toggle("owned", Boolean(names));
+    grip.classList.toggle("locked", Boolean(names));
+    grip.innerHTML = names ? lockIconSvg() : gripIconSvg();
+    grip.title = names
+      ? `由 ${names}。点锁接手这一行，之后开关就不管它了。拖动可重新排序。`
+      : "拖动可重新排序";
+  });
+}
+
+// Take a row back from the switches that set it: they forget it, keep the
+// rest of what they do, and stop reading "changed" because of it.
+function takeRowOver(state, index) {
+  const row = state.rows[index];
+  const owners = rowOwners(state, row);
+  if (!owners.length) return;
+  for (const owner of owners) {
+    owner.node.properties ??= {};
+    owner.node.properties[SWITCHES_PROPERTY] = releaseStackRow(
+      owner.node.properties[SWITCHES_PROPERTY], owner.id, state.owner.node.id, state.owner.name, row.name,
+    );
+  }
+  refreshLocks(state);
+  app.canvas?.setDirty?.(true, true);
+  notifyAusbossChange();
+  loraToast(`${rowLabel(state, row.name)} 现在归你了：${ownerNames(owners)} 不再控制它了。`);
+}
+
+// Take a group back from the switches that turn it on and off.
+function takeGroupOver(state, group) {
+  const owners = groupOwners(state, group);
+  if (!owners.length) return;
+  for (const owner of owners) {
+    owner.node.properties ??= {};
+    owner.node.properties[SWITCHES_PROPERTY] = releaseStackGroup(
+      owner.node.properties[SWITCHES_PROPERTY], owner.id, state.owner.node.id, state.owner.name, group,
+    );
+  }
+  refreshLocks(state);
+  app.canvas?.setDirty?.(true, true);
+  notifyAusbossChange();
+  loraToast(`分组 ${group} 现在归你了：${ownerNames(owners)} 不再控制它的开关。`);
+}
+
+// A renamed group stays with the switches that turn it on and off.
+function renameOwnedGroup(state, from, to) {
+  const owner = state.owner;
+  if (!owner?.node?.graph) return;
+  for (const board of switchBoards(owner.node.graph)) {
+    if (!stackGroupOwners([board], owner.node.id, owner.name, from).length) continue;
+    board.node.properties[SWITCHES_PROPERTY] = renameStackGroup(board.settings, owner.node.id, owner.name, from, to);
+  }
+}
+
+// ---------- rendering ----------
+
+// Per-row decoration. The strength bar behind each name (inline styles,
+// not CSS classes - every bar's geometry is data-driven; the pure math
+// lives in js/shared/lora_stack.mjs), the amber duplicate ring,
+// and the moved/missing tint against the install's list. Runs on every
+// value update - the bar scale can change whenever any row's strength does.
+function decorateRows(state) {
+  const showBars = state.settings?.strength_bars !== false;
+  const scale = strengthBarScale(state.rows);
+  const dups = duplicateLoraKeys(state.rows);
+  state.panel.querySelectorAll(".ausboss-lora-name").forEach((button, index) => {
+    const row = state.rows[index];
+    if (!row?.name) {
+      button.style.background = "";
+      button.classList.remove("dup", "moved", "missing");
+      return;
+    }
+    const notes = [row.name];
+    if (showBars) {
+      button.style.background = strengthBarBackground(row.strength, scale);
+      notes.push(`模型强度 ${row.strength.toFixed(2)}; `
+        + `条边界为 ±${scale.toFixed(2)}`);
+    } else {
+      button.style.background = "";
+    }
+    const dup = dups.has(row.name.toLowerCase());
+    button.classList.toggle("dup", dup);
+    if (dup) notes.push("重复：另一行加载了同一个 LoRA。");
+    const status = nameStatus(state, row.name);
+    button.classList.toggle("moved", status?.status === "remapped");
+    button.classList.toggle(
+      "missing",
+      status?.status === "missing" || status?.status === "ambiguous",
+    );
+    if (status?.status === "remapped") {
+      notes.push(`不在它保存的位置；本次运行将使用 "${status.name}".`);
+    } else if (status?.status === "missing") {
+      notes.push(
+        state.onMissingWidget?.value === "skip"
+          ? "models/loras 里没有匹配的文件——运行时这一行会被跳过"
+            + "（「缺少 LoRA 时停止」为关）。"
+          : "models/loras 里没有匹配的文件——运行会在采样前停下。请"
+            + "修改这一行，或在齿轮菜单里关掉「缺少 LoRA 时停止」来跳过它。",
+      );
+    } else if (status?.status === "ambiguous") {
+      notes.push("有多个文件同名——选一个来确定。");
+    }
+    button.title = notes.join("\n");
+  });
+}
+
+function updateRowValues(state) {
+  state.panel.querySelectorAll(".ausboss-lora-strength").forEach((input) => {
+    if (input.readOnly && input.__ausbossRead) input.value = input.__ausbossRead();
+    if (input.__ausbossTint) input.__ausbossTint();
+  });
+  const summary = state.panel.querySelector(".ausboss-lora-summary");
+  if (summary) summary.textContent = summarizeRows(state.rows);
+  const master = state.panel.querySelector(".ausboss-lora-master");
+  if (master) {
+    const overall = toggleAllState(state.rows);
+    master.classList.toggle("on", overall === "on");
+    master.classList.toggle("mixed", overall === "mixed");
+  }
+  decorateRows(state);
+}
+
+// ---------- absorb the loader chain ----------
+
+// Loader recognition and graph traversal share one tested source in lora_stack.mjs.
+// Circular reconnect arrow, hand-drawn like the shared gear so no glyph
+// font is trusted to have it.
+function reloadIconSvg() {
+  return (
+    '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M13.4 8a5.4 5.4 0 1 1-1.8-4"/><polyline points="13.6 1.4 13.6 4.6 10.4 4.6"/></svg>'
+  );
+}
+
+// Re-check every row against a FRESH lora list and repair
+// what it can. A row whose file moved (or was restored after being missing)
+// reconnects by rewriting the row to the resolved path - exactly what
+// deleting and re-adding the row did by hand. Wired to the bar's reconnect
+// button and to ComfyUI's own R refresh; quiet mode only toasts when it
+// actually repaired something.
+async function runReconnect(state, { quiet = false } = {}) {
+  let list;
+  try {
+    list = await fetchLoraList();
+  } catch {
+    if (!quiet) loraToast("刷新 LoRA 列表失败。");
+    return;
+  }
+  state.available = list;
+  state.nameStatus = new Map();
+  let repaired = 0;
+  const rows = state.rows.map((row) => {
+    if (!row.name) return row;
+    const fit = resolveLoraName(row.name, list);
+    if (fit.status !== "remapped") return row;
+    repaired += 1;
+    rangeCache.delete(row.name);
+    return { ...row, name: fit.name };
+  });
+  const unresolved = rows.filter(
+    (row) => row.name && resolveLoraName(row.name, list).status !== "exact",
+  ).length;
+  if (repaired) {
+    commitRows(state, rows, { structural: true });
+    notifyAusbossChange();
+  } else {
+    decorateRows(state);
+  }
+  if (!quiet || repaired) {
+    const lead = repaired
+      ? `Reconnected ${repaired} 条 LoRA 路径${repaired === 1 ? "" : "s"}`
+      : "LoRA 列表已刷新";
+    if (unresolved) {
+      loraToast(`${lead}; ${unresolved} row${unresolved === 1 ? "" : "s"} 行仍然缺失。`);
+    } else {
+      loraToast(repaired ? `${lead}.` : `${lead}；每一行都指向真实存在的文件。`);
+    }
+  }
+}
+
+function loraToast(detail) {
+  showToast({ summary: "LoRA Loader \u{1F18E}", detail, life: 7000 });
+}
+
+async function runImportChain(state) {
+  // A bypassed or muted loader is not shaping the current render; importing
+  // its rows would change the image. Leave it alone.
+  const isActive = (loader) =>
+    loader.mode !== BYPASS_MODE && loader.mode !== MUTE_MODE;
+  const upstream = collectUpstreamLoaders(state.node);
+  const downstream = collectDownstreamLoaders(state.node);
+  const issue = absorbChainIssue(state.node, upstream, downstream);
+  if (issue) { loraToast(issue); return; }
+  const activeUp = upstream.filter(isActive);
+  const activeDown = downstream.filter(isActive);
+  const sources = [...activeUp, ...activeDown];
+  // A snapshot cannot reproduce values calculated by another node at run time.
+  if (sources.some((loader) => loader.inputs?.some((input) => input.link != null
+      && !["MODEL", "CLIP"].includes(String(input.type).toUpperCase())))) {
+    loraToast("有来源加载器的 LoRA 设置已联动。吸收前请先断开这些设置；来源加载器会保持启用。");
+    return;
+  }
+  const entriesOf = (loader) => loaderLoraEntries({
+    type: String(loader.type ?? loader.comfyClass ?? ""),
+    widgets: (loader.widgets ?? []).map((widget) => ({
+      name: widget.name,
+      value: widget.value,
+    })),
+  })?.map(row => ({ ...row, strength_clip: loader.inputs?.some(input =>
+    String(input.type).toUpperCase() === "CLIP" && input.link != null) ? row.strength_clip : 0 })) ?? [];
+  // Upstream walks nearest-first, so reversed = the order the chain applies
+  // them; downstream nearest-first already IS its apply order.
+  const upEntries = activeUp.slice().reverse().flatMap(entriesOf);
+  const downEntries = activeDown.flatMap(entriesOf);
+  if (!upEntries.length && !downEntries.length) {
+    loraToast(importSummary({}));
+    return;
+  }
+  let available = [];
+  try {
+    available = await fetchLoraList();
+    state.available = available;
+    state.nameStatus = new Map();
+  } catch {
+    // Offline: names import verbatim; the rows tint and the run-time
+    // resolver gets the next chance.
+  }
+  let remapped = 0;
+  let missing = 0;
+  let ambiguous = 0;
+  const resolve = (item) => {
+    if (!available.length) return { ...item };
+    const fit = resolveLoraName(item.name, available);
+    if (fit.status === "remapped") remapped += 1;
+    else if (fit.status === "missing") missing += 1;
+    else if (fit.status === "ambiguous") ambiguous += 1;
+    return { ...item, name: fit.name };
+  };
+  const upResolved = upEntries.map(resolve);
+  const downResolved = downEntries.map(resolve);
+  // Preserve upstream → this stack → downstream application order, including
+  // repeated files: the same LoRA in two loaders represents two applications.
+  const upMerge = mergeImportedRows(state.rows, upResolved,
+    { position: "before", deduplicate: false });
+  const downMerge = mergeImportedRows(upMerge.rows, downResolved,
+    { position: "after", deduplicate: false });
+  // Rows that patch model and CLIP differently need both boxes visible, or
+  // the difference is invisible and lost on the first scrub. The flip is
+  // node-local (unified stays the default for new nodes) and the toast
+  // names it so it never reads as a settings change.
+  let separated = false;
+  if (importNeedsSeparateStrengths([...upResolved, ...downResolved])
+      && linked(state)) {
+    state.node.properties.ausbossLoraLinked = false;
+    separated = true;
+  }
+  const absorbed = [...activeUp, ...activeDown];
+  for (const loader of absorbed) loader.mode = BYPASS_MODE;
+  commitRows(state, downMerge.rows, { structural: true });
+  fitNode(state);
+  notifyAusbossChange();
+  loraToast(importSummary({
+    added: upMerge.added + downMerge.added,
+    skipped: upMerge.skipped + downMerge.skipped,
+    bypassed: absorbed.length,
+    remapped,
+    missing,
+    ambiguous,
+  }) + (separated
+    ? "导入的行对模型和 CLIP 的修补方式不同，所以这个节点"
+      + "现在会显示两个强度框。"
+    : ""));
+}
+
+function openSettings(state, anchor) {
+  // The import action rides the gear menu but is per-node and one-shot, so
+  // the schema is composed per call; persistence still uses SETTINGS_SCHEMA.
+  const menuSchema = [
+    ...SETTINGS_SCHEMA,
+    {
+      key: "_import_chain",
+      label: "吸收链上的 LoRA",
+      type: "action",
+      button: "Absorb",
+      hint: "把这个节点模型链上接的所有 LoRA 加载器——"
+        + "上游和下游——都收进这个堆栈，并把那些"
+        + "节点设为旁路；图算出来的结果不变。",
+      onAction: () => {
+        closeSettingsMenu();
+        runImportChain(state);
+      },
+    },
+  ];
+  // Inside a subgraph the rows can show on the box's face instead; first in
+  // the menu there, since it is what a loader in a box is usually set up for.
+  if (state.node.graph?.isRootGraph === false) {
+    const onBox = Boolean(rowsInputName(state.node));
+    menuSchema.unshift({
+      key: "_box_rows",
+      label: "行显示在盒子上",
+      type: "action",
+      button: onBox ? "收回" : "Show",
+      hint: onBox
+        ? "这些行显示在这个子图所在的盒子上。「收回」会把它们"
+          + "放回这个加载器里，由你进来的那个盒子持有；"
+          + "之后盒子的每个副本都会跑这些行。"
+        : "把这些行显示在这个子图所在的盒子表面上，在那里"
+          + "它们可以被开关，也可以由 Workflow Switches 控制。盒子的每个"
+          + "副本都保留自己的行。",
+      onAction: () => {
+        closeSettingsMenu();
+        if (onBox) rowsBackInside(state);
+        else showRowsOnBox(state);
+      },
+    });
+  }
+  openSettingsMenu({
+    scope: SETTINGS_SCOPE,
+    schema: menuSchema,
+    anchor: anchor.getBoundingClientRect(),
+    title: "LoRA Loader 设置",
+    // The menu reflects THIS node's live state where the two overlap.
+    initial: {
+      ...state.settings,
+      separate_strengths: !linked(state),
+      ...(state.separatorWidget ? { separator: state.separatorWidget.value } : {}),
+      ...(state.onMissingWidget
+        ? { strict_missing: state.onMissingWidget.value === "error" }
+        : {}),
+    },
+    onChange: (values, key) => {
+      state.settings = values;
+      // Two settings also steer this node's own serialized state, so the
+      // change takes effect here immediately, not just on future nodes.
+      if (key === "separate_strengths" || key === null) {
+        state.node.properties.ausbossLoraLinked = !values.separate_strengths;
+        if (!values.separate_strengths) {
+          commitRows(
+            state,
+            state.rows.map((row) => ({ ...row, strength_clip: row.strength })),
+          );
+        }
+      }
+      if ((key === "separator" || key === null) && state.separatorWidget) {
+        state.separatorWidget.value = values.separator;
+      }
+      if ((key === "strict_missing" || key === null) && state.onMissingWidget) {
+        state.onMissingWidget.value = values.strict_missing ? "error" : "skip";
+      }
+      renderRows(state);
+      fitNode(state);
+      notifyAusbossChange();
+    },
+  });
+}
+
+// Only keys dispatched inside this panel participate. No window/document
+// listener and no canvas selection heuristic: Tab, application shortcuts,
+// typing, and focus in every other node keep their existing behavior.
+function focusStackRow(state, index) {
+  const rows = [...state.panel.querySelectorAll(".ausboss-lora-row")];
+  const target = index >= 0 && index < rows.length ? rows[index]
+    : state.panel.querySelector(".ausboss-lora-add:not(:disabled)") ?? rows.at(-1);
+  hideHoverThumb();
+  target?.focus({ preventScroll: true });
+}
+
+// Up and Down step over the rows of a folded group.
+function visibleRowIndex(state, from, to) {
+  const rows = [...state.panel.querySelectorAll(".ausboss-lora-row")];
+  const step = to < from ? -1 : 1;
+  let at = to;
+  while (at >= 0 && at < rows.length && rows[at].classList.contains("folded-away")) at += step;
+  return at < 0 ? from : at;
+}
+
+// Is the browser showing keyboard focus on this element? A control that was
+// clicked with the mouse has focus too, without the outline. Focus is only
+// ever handed to a row from an element that shows it: otherwise a mouse click
+// would leave a row holding the keys with nothing on screen to say so.
+function showsKeyboardFocus(element) {
+  try {
+    return Boolean(element?.matches?.(":focus-visible"));
+  } catch {
+    return false;
+  }
+}
+
+function installStackKeyboard(state) {
+  state.panel.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (!state.panel.contains(document.activeElement) || event.defaultPrevented
+        || event.isComposing || event.keyCode === 229) return;
+    const rowElement = target.closest?.(".ausboss-lora-row");
+    const atAdd = Boolean(target.closest?.(".ausboss-lora-add, .ausboss-lora-blank"));
+    if (!rowElement && !atAdd) return;
+    const field = target.closest?.("input, textarea, select, [contenteditable]");
+    const editing = Boolean(field && (field.isContentEditable
+      || field.tagName !== "INPUT" || !field.readOnly));
+    if (event.key === "Escape" && !editing && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      document.activeElement?.blur();
+      return;
+    }
+    // A row's own buttons and boxes keep Enter and Space (the switch turns
+    // the row off, the name opens its picker). A strength field keeps its
+    // editing keys; arrows only browse it while idle.
+    const onControl = Boolean(rowElement && target !== rowElement);
+    const index = rowElement ? [...state.panel.querySelectorAll(".ausboss-lora-row")].indexOf(rowElement)
+      : state.rows.length;
+    const action = loraStackKeyAction(event, { index, rowCount: state.rows.length, atAdd, editing, onControl });
+    const heldToggle = rowElement && !onControl && event.key === " " && event.repeat && !editing
+      && !event.ctrlKey && !event.metaKey && !event.altKey;
+    if (!action && !heldToggle) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!action) return; // Holding Space never toggles twice or starts canvas panning.
+    // "block" (Delete, Backspace) ends here: the key is kept from ComfyUI.
+    if (action.kind === "focus") {
+      focusStackRow(state, visibleRowIndex(state, index, action.index));
+    } else if (action.kind === "pick") {
+      openPicker(state, atAdd ? null : index,
+        atAdd ? state.panel.querySelector(".ausboss-lora-add") : rowElement.querySelector(".ausboss-lora-name"),
+        { keyboard: true });
+    } else if (action.kind === "toggle") {
+      const rows = state.rows.map((row, i) => i === index ? { ...row, enabled: !row.enabled } : row);
+      state.toggleSnapshot = snapshotEnabled(rows);
+      commitRows(state, rows, { structural: true });
+      focusStackRow(state, index);
+    } else if (action.kind === "strength") {
+      const strengthField = field ?? target.closest?.(".ausboss-lora-strengthbox")?.querySelector("input");
+      const key = strengthField?.dataset.ausbossStrength === "strength_clip" ? "strength_clip" : "strength";
+      const step = action.fine ? FINE_STEP : state.settings?.step ?? DEFAULT_STEP;
+      const value = roundStrength(state.rows[index][key] + action.direction * step);
+      if (value === state.rows[index][key]) return;
+      const rows = key === "strength"
+        ? setStrength(state.rows, index, value, linked(state))
+        : state.rows.map((row, i) => i === index ? { ...row, strength_clip: value } : row);
+      commitRows(state, rows);
+    }
+  }, { capture: true });
+}
+
+function renderRows(state) {
+  const panel = state.panel;
+  // The rebuild below drops focus. It is put back only for keyboard focus:
+  // after a mouse click on a switch the keys stay with ComfyUI, as before.
+  const focused = panel.contains(document.activeElement) && showsKeyboardFocus(document.activeElement)
+    ? document.activeElement : null;
+  const focusedRow = focused?.closest?.(".ausboss-lora-row") ?? null;
+  const focusedRowId = focusedRow?.dataset.rowId;
+  const focusedIndex = focusedRow ? [...panel.querySelectorAll(".ausboss-lora-row")].indexOf(focusedRow) : -1;
+  const wasAddFocused = Boolean(focused?.matches?.(".ausboss-lora-add, .ausboss-lora-blank"));
+  panel.textContent = "";
+  const body = el("div", "ausboss-lora-body");
+  panel.append(body);
+
+  const addRowAndPick = (event) => {
+    // detail is 0 for a click made with Enter or Space.
+    openPicker(state, null, event.currentTarget, { keyboard: event.detail === 0 });
+  };
+
+  const bar = el("div", "ausboss-lora-bar");
+  const overall = toggleAllState(state.rows);
+  const master = el(
+    "button",
+    `ausboss-lora-toggle ausboss-lora-master${overall === "on" ? " on" : overall === "mixed" ? " mixed" : ""}`
+  );
+  master.type = "button";
+  master.title = "总开关：混合状态下点会先记住你的设置再全部打开；"
+    + "已全开时点会全部关闭；全关时点会恢复你保存的设置";
+  // The master pill remembers the mixed setup it destroys,
+  // so an accidental click is always one more click from home.
+  master.addEventListener("click", () => {
+    const cycled = cycleMasterToggle(state.rows, state.toggleSnapshot);
+    state.toggleSnapshot = cycled.snapshot;
+    commitRows(state, cycled.rows, { structural: true });
+  });
+  const templates = el("button", "ausboss-lora-gear", "▤");
+  templates.type = "button";
+  templates.title = "LoRA 模板：保存当前堆栈，或套用已保存的模板";
+  templates.addEventListener("click", () => openTemplates(state, templates));
+  const recheck = el("button", "ausboss-lora-gear");
+  recheck.type = "button";
+  recheck.title = "重新检查 LoRA 文件：刷新列表，并把"
+    + "文件搬走或回来了的行重新接上";
+  recheck.innerHTML = reloadIconSvg();
+  recheck.addEventListener("click", () => runReconnect(state));
+  const gear = el("button", "ausboss-lora-gear");
+  gear.type = "button";
+  gear.title = "LoRA Loader 设置";
+  gear.innerHTML = gearIconSvg();
+  gear.addEventListener("click", () => openSettings(state, gear));
+  const group = el("div", "ausboss-lora-bargroup");
+  // On a box only the rows themselves: templates and the settings stay on
+  // the loader inside.
+  if (state.box) group.append(master, el("span", "ausboss-lora-summary", summarizeRows(state.rows)), recheck);
+  else group.append(templates, master, el("span", "ausboss-lora-summary", summarizeRows(state.rows)), recheck, gear);
+  bar.append(group);
+  body.append(bar);
+  panel.classList.toggle("readonly", Boolean(state.readOnly));
+  if (state.note) {
+    const note = el("div", "ausboss-lora-onbox", state.note);
+    note.title = state.note;
+    body.append(note);
+  }
+
+  const stack = el("div", "ausboss-lora-stack");
+  // Rows and group headers open their own menus; the space around them
+  // opens the stack's, never the browser's Copy / Select all.
+  stack.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openStackMenu(state, event);
+  });
+  if (!state.rows.length) {
+    const blank = el("button", "ausboss-lora-blank", "还没有 LoRA");
+    blank.type = "button";
+    blank.title = "添加 LoRA";
+    blank.addEventListener("click", addRowAndPick);
+    stack.append(blank);
+  }
+
+  const folded = foldedGroups(state);
+  const chosen = selectedIds(state);
+  for (const id of [...chosen]) if (!state.rows.some((row) => row.id === id)) chosen.delete(id);
+  const headers = new Map(stackLayout(state.rows)
+    .filter((item) => item.kind === "group").map((item) => [item.start, item]));
+
+  state.rows.forEach((row, index) => {
+    const header = headers.get(index);
+    if (header) stack.append(groupHeader(state, stack, header, folded.has(header.group)));
+    const rowElement = el("div", "ausboss-lora-row");
+    if (row.group) rowElement.classList.add("child");
+    if (row.group && folded.has(row.group)) rowElement.classList.add("folded-away");
+    if (chosen.has(row.id)) rowElement.classList.add("selected");
+    rowElement.tabIndex = 0;
+    rowElement.dataset.rowId = row.id;
+    rowElement.setAttribute("role", "group");
+    rowElement.setAttribute("aria-label", row.name || "空的 LoRA 行");
+    rowElement.setAttribute("aria-keyshortcuts", "ArrowUp ArrowDown ArrowLeft ArrowRight Shift+ArrowLeft Shift+ArrowRight Space Enter Escape");
+    rowElement.title = "上下键选行，空格开关，左右键改强度。"
+      + "按住 Shift 步长更小；回车选文件。";
+    if (!row.enabled) rowElement.classList.add("off");
+    if (row.group_off) rowElement.classList.add("groupoff");
+
+    const grip = el("button", "ausboss-lora-grip");
+    grip.type = "button";
+    grip.title = "拖动可重新排序";
+    grip.innerHTML = gripIconSvg();
+    grip.addEventListener("pointerdown", (event) => {
+      // A lone row can still be dragged out of its group.
+      if (event.button !== 0 || (state.rows.length < 2 && !row.group)) return;
+      event.preventDefault();
+      hideHoverThumb();
+      startStackDrag(state, stack, [rowElement], grip, event,
+        { kind: "row", id: row.id, label: row.name ? rowLabel(state, row.name) : "空的 LoRA 行" });
+    });
+    // A click on the lock of a row a switch sets takes the row over (a drag
+    // that moved the row is no click).
+    grip.addEventListener("click", () => {
+      if (grip.dataset.ausbossDragged) {
+        delete grip.dataset.ausbossDragged;
+        return;
+      }
+      takeRowOver(state, index);
+    });
+
+    const toggle = el("button", `ausboss-lora-toggle${row.enabled ? " on" : ""}`);
+    toggle.type = "button";
+    toggle.title = "启用或停用这个 LoRA";
+    // The pill only shows its state by colour and position.
+    toggle.setAttribute("role", "switch");
+    toggle.setAttribute("aria-checked", String(row.enabled));
+    toggle.addEventListener("click", () => {
+      const rows = state.rows.map((entry, i) =>
+        i === index ? { ...entry, enabled: !entry.enabled } : entry
+      );
+      // Every hand-made toggle refreshes the master pill's memory.
+      state.toggleSnapshot = snapshotEnabled(rows);
+      commitRows(state, rows, { structural: true });
+    });
+
+    const name = el("button", "ausboss-lora-name");
+    name.append(row.name
+      ? nameLabel(rowLabel(state, row.name))
+      : el("span", "ausboss-lora-label", "选择一个 LoRA..."));
+    // The visible text may be shortened; a screen reader gets the whole name.
+    if (row.name) name.setAttribute("aria-label", rowLabel(state, row.name));
+    name.type = "button";
+    name.title = row.name || "从 models/loras 里选一个 LoRA";
+    if (!row.name) name.classList.add("empty");
+    // The name is also a scrub surface - the bar behind it
+    // makes it the natural drag target for model strength. The shared dead
+    // zone keeps a plain click a click, which still opens the picker; a
+    // scrub that ends on the button swallows the click it fires.
+    let nameDrag = null;
+    name.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !row.name
+          || state.settings?.name_scrub === false) return;
+      nameDrag = { x: event.clientX, y: event.clientY,
+                   start: state.rows[index].strength, scrubbed: false };
+      name.setPointerCapture(event.pointerId);
+    });
+    name.addEventListener("pointermove", (event) => {
+      if (!nameDrag) {
+        showHoverThumb(state, row.name, event.clientX, event.clientY);
+        return;
+      }
+      const dx = event.clientX - nameDrag.x;
+      const dy = event.clientY - nameDrag.y;
+      if (!nameDrag.scrubbed && isScrubbing(dx, dy)) {
+        nameDrag.scrubbed = true;
+        hideHoverThumb();
+      }
+      if (nameDrag.scrubbed) {
+        commitRows(state, setStrength(
+          state.rows,
+          index,
+          scrubValue(nameDrag.start, dx, event.shiftKey, state.settings?.step),
+          linked(state),
+        ), { record: false });
+      }
+    });
+    const endNameDrag = (event) => {
+      if (!nameDrag) return;
+      try { name.releasePointerCapture(event.pointerId); } catch {}
+      if (nameDrag.scrubbed) {
+        name.dataset.ausbossScrubbed = "1";
+        notifyAusbossChange();
+      }
+      nameDrag = null;
+    };
+    name.addEventListener("pointerup", endNameDrag);
+    name.addEventListener("pointercancel", endNameDrag);
+    name.addEventListener("click", (event) => {
+      if (name.dataset.ausbossScrubbed) {
+        delete name.dataset.ausbossScrubbed;
+        return;
+      }
+      openPicker(state, index, name, { keyboard: event.detail === 0 });
+    });
+    name.addEventListener("pointerenter", (event) =>
+      showHoverThumb(state, row.name, event.clientX, event.clientY));
+    name.addEventListener("pointerleave", hideHoverThumb);
+
+    rowElement.append(grip, toggle, name, strengthBox(state, index, "strength"));
+    if (!linked(state)) rowElement.append(strengthBox(state, index, "strength_clip"));
+
+    const info = el("button", "ausboss-lora-info", "i");
+    info.type = "button";
+    info.title = "预览图、基础模型和触发词";
+    info.addEventListener("click", () => openInfo(state, index, info));
+    rowElement.append(info);
+
+    rowElement.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openRowMenu(state, index, event);
+    });
+    // Ctrl/Cmd-click or Shift-click selects the row instead of using the
+    // control under the pointer. The strength boxes keep their own clicks,
+    // and Shift on the name can still start a fine scrub: its click decides.
+    const modified = (event) => event.ctrlKey || event.metaKey || event.shiftKey;
+    rowElement.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !modified(event) || event.target.closest(".ausboss-lora-strengthbox")) return;
+      if (!event.ctrlKey && !event.metaKey && event.target.closest(".ausboss-lora-name")) return;
+      event.preventDefault();
+      event.stopPropagation();
+    }, { capture: true });
+    rowElement.addEventListener("click", (event) => {
+      if (!modified(event) || event.target.closest(".ausboss-lora-strengthbox")
+          || name.dataset.ausbossScrubbed) return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectRow(state, row.id, event.shiftKey && !event.ctrlKey && !event.metaKey);
+    }, { capture: true });
+    stack.append(rowElement);
+  });
+  // The add button lives INSIDE the stack container and pins to its bottom
+  // edge (margin-top: auto), so it stays put however tall the node is
+  // dragged - the stack absorbs the free height above it.
+  const actions = el("div", "ausboss-lora-actions");
+  const add = el("button", "ausboss-lora-add", "+ LoRA");
+  add.type = "button";
+  add.addEventListener("click", addRowAndPick);
+  add.title = "选一个 LoRA，或点文件夹名把这个文件夹的 LoRA 全部加入。";
+  actions.append(add);
+  stack.append(actions);
+  body.append(stack);
+  decorateRows(state);
+  state.lockSignature = null;
+  refreshLocks(state);
+  // Names refit whenever the stack's box changes - the node was resized,
+  // or the panel was laid out for the first time. The first observation
+  // arrives before the next paint, so an unfitted name never shows.
+  state.nameObserver ??= new ResizeObserver(() => {
+    holdVueNodeMinWidth(state.panel, panelMinWidth(state));
+    fitRowNames(state);
+  });
+  state.nameObserver.disconnect();
+  state.nameObserver.observe(stack);
+  if (focusedRowId) {
+    const index = state.rows.findIndex((row) => row.id === focusedRowId);
+    focusStackRow(state, index >= 0 ? index : Math.min(focusedIndex, state.rows.length));
+  } else if (wasAddFocused) focusStackRow(state, state.rows.length);
+}
+
+// Rows cut a long name at the end (the label's CSS ellipsis) unless the
+// gear's "Long names" asks for the middle. The picker always keeps the end
+// in view: that is where a search tells checkpoints apart.
+function fitRowNames(state) {
+  const labels = state.panel.querySelectorAll(".ausboss-lora-name > [data-ausboss-full]");
+  if (state.settings?.name_cut === "middle") {
+    fitLabels(labels);
+    return;
+  }
+  for (const label of labels) {
+    if (label.textContent !== label.dataset.ausbossFull) label.textContent = label.dataset.ausbossFull;
+  }
+}
+
+// ---------- rows on a box ----------
+
+// The box the user last came in through, per subgraph. An inner loader
+// whose rows are set on the box follows that box's copy of them.
+const enteredBoxes = new WeakMap();
+function watchEnteredBoxes() {
+  const canvas = app.canvas?.canvas;
+  if (!canvas || canvas.__ausbossLoraEntered) return;
+  canvas.__ausbossLoraEntered = true;
+  canvas.addEventListener("subgraph-opened", (event) => {
+    const { subgraph, fromNode } = event.detail ?? {};
+    if (subgraph && fromNode) enteredBoxes.set(subgraph, fromNode);
+  });
+}
+
+function rootGraph() {
+  return app.rootGraph ?? app.graph;
+}
+
+function isLoader(node) {
+  return node?.type === NODE_CLASS || node?.comfyClass === NODE_CLASS;
+}
+
+function boxTitle(box) {
+  return String(box?.title || "这个盒子").replace(/\s*🆎\s*$/u, "");
+}
+
+// Where a card's rows are kept, and so what it shows and edits:
+// - a box card: the box's own copy of the rows of its loader inside;
+// - a loader whose rows come in from its box: that box's copy, when it is
+//   known which box (the one the user came in through, or the only one),
+//   else its own rows, read only, since each box sets its own;
+// - any other loader: its own rows.
+// `owner` is the node and control a Workflow Switches switch addresses.
+function rowsSource(state) {
+  const node = state.node;
+  if (state.box) {
+    return { widget: boxRowsWidget(node, state.box.inputName), owner: { node, name: state.box.inputName } };
+  }
+  const own = node.widgets?.find((item) => item.name === "loras") ?? null;
+  const fed = rowsInputName(node);
+  if (!fed) return { widget: own, owner: { node, name: "loras" } };
+  const box = hostBox(node.graph, boxesOf(node.graph, workflowNodes(rootGraph())), enteredBoxes.get(node.graph));
+  const widget = box && boxRowsWidget(box, fed);
+  if (!widget) {
+    return {
+      widget: own, owner: { node, name: "loras" }, readOnly: true,
+      note: "每个装着这个子图的盒子都会在表面上设置这些行。",
+    };
+  }
+  return { widget, owner: { node: box, name: fed }, note: `这些行由盒子 "${boxTitle(box)}".` };
+}
+
+// Follow the rows to wherever they are kept now. Returns true when the card
+// was drawn again.
+function syncRows(state) {
+  const source = rowsSource(state);
+  const widget = source.widget;
+  if (!widget) return false;
+  // The box's raw copy hides under its card; the frontend may hand the box
+  // a new copy object at any time (a reload, an undo).
+  if (state.box) hideWidget(widget);
+  const moved = widget !== state.widget || source.note !== state.note
+    || Boolean(source.readOnly) !== Boolean(state.readOnly)
+    || source.owner.node !== state.owner?.node || source.owner.name !== state.owner?.name;
+  state.widget = widget;
+  state.owner = source.owner;
+  state.readOnly = Boolean(source.readOnly);
+  state.note = source.note;
+  if (!moved && widget.value === state.renderedValue) return false;
+  state.rows = parseRows(widget.value);
+  state.renderedValue = widget.value;
+  state.toggleSnapshot = snapshotEnabled(state.rows);
+  renderRows(state);
+  fitNode(state);
+  return true;
+}
+
+// Every card on the page, so one redraw hook can keep them current in both
+// renderers (Nodes 2.0 does not draw a node on the canvas), and every box
+// that is watched for rows coming up to it.
+const liveCards = new Set();
+const watchedBoxes = new Set();
+let redrawTimer = null;
+let hookedCanvas = null;
+function ensureRedrawHook() {
+  const canvas = app.canvas;
+  if (!canvas || canvas === hookedCanvas) return;
+  hookedCanvas = canvas;
+  chainCallback(canvas, "onDrawForeground", () => {
+    if (redrawTimer !== null) return;
+    redrawTimer = setTimeout(() => {
+      redrawTimer = null;
+      const shown = app.canvas?.getCurrentGraph?.() ?? app.canvas?.graph;
+      for (const box of watchedBoxes) if (box.graph === shown) syncBoxCards(box);
+      for (const state of liveCards) {
+        if (state.node.graph !== shown) continue;
+        syncRows(state);
+        refreshLocks(state);
+      }
+    }, 250);
+  });
+}
+
+// Bring a loader's rows up to its box: the frontend's own way of showing a
+// setting on a box, a subgraph input linked to the rows. Every box of this
+// subgraph then keeps its own copy, starting from these rows.
+function showRowsOnBox(state) {
+  const node = state.node;
+  const subgraph = node.graph;
+  const slot = node.inputs?.find((input) => input.name === "loras");
+  const inputNode = subgraph?.inputNode;
+  if (!slot || typeof inputNode?.connectByType !== "function" || typeof subgraph.removeInput !== "function") {
+    loraToast("这个 ComfyUI 版本不支持在盒子上显示行。");
+    return;
+  }
+  const before = new Set(subgraph.inputs ?? []);
+  // -1 makes a new subgraph input for the first input of this type, which
+  // on this node is the rows (the inputs only ever grow at the end).
+  inputNode.connectByType(-1, node, slot.type || "STRING");
+  const added = (subgraph.inputs ?? []).find((input) => !before.has(input));
+  if (!added || rowsInputName(node) !== added.name) {
+    if (added) subgraph.removeInput(added);
+    loraToast("这些行未能显示在盒子上。");
+    return;
+  }
+  for (const box of boxesOf(subgraph, workflowNodes(rootGraph()))) syncBoxCards(box);
+  syncRows(state);
+  app.canvas?.setDirty?.(true, true);
+  notifyAusbossChange();
+  loraToast("这些行现在显示在盒子上了。盒子的每个副本都保留自己的行。");
+}
+
+// Put the rows back inside the loader. It keeps the rows of the box the
+// user came in through; every copy of the box runs those from then on.
+function rowsBackInside(state) {
+  const node = state.node;
+  const subgraph = node.graph;
+  const name = rowsInputName(node);
+  const input = (subgraph?.inputs ?? []).find((item) => item.name === name);
+  if (!input) return;
+  const own = node.widgets?.find((item) => item.name === "loras");
+  const shown = rowsSource(state).widget;
+  const keep = shown && shown !== own ? shown.value : null;
+  // A box whose input is wired from outside keeps its input; only the link
+  // inside goes, as the frontend does it.
+  const wired = boxesOf(subgraph, workflowNodes(rootGraph())).some((box) => {
+    const index = (box.inputs ?? []).findIndex((item) => item.name === name);
+    return index >= 0 && box.isInputConnected?.(index);
+  });
+  if (wired) input.disconnect();
+  else subgraph.removeInput(input);
+  if (own && typeof keep === "string") own.value = keep;
+  syncRows(state);
+  app.canvas?.setDirty?.(true, true);
+  notifyAusbossChange();
+  loraToast("这些行已回到加载器里。");
+}
+
+// A box shows one card for each loader inside whose rows came up to it.
+function syncBoxCards(box) {
+  if (!box?.isSubgraphNode?.() || !box.graph) return;
+  box.__ausbossLoraCards ??= new Map();
+  const cards = box.__ausbossLoraCards;
+  const wanted = new Set();
+  for (const { name, loader } of boxRowInputs(box, isLoader)) {
+    if (!boxRowsWidget(box, name)) continue;
+    wanted.add(name);
+    const card = cards.get(name);
+    if (card) card.box.loader = loader;
+    else {
+      const state = mountCard(box, { box: { inputName: name, loader } });
+      if (state) cards.set(name, state);
+    }
+  }
+  for (const [name, state] of cards) {
+    if (wanted.has(name)) continue;
+    cards.delete(name);
+    unmountCard(state);
+  }
+}
+
+function watchBox(box) {
+  if (!box?.isSubgraphNode?.() || box.__ausbossLoraWatch) return;
+  const abort = new AbortController();
+  box.__ausbossLoraWatch = abort;
+  watchedBoxes.add(box);
+  const later = () => requestAnimationFrame(() => syncBoxCards(box));
+  for (const type of ["widget-promoted", "widget-demoted", "input-added", "removing-input"]) {
+    box.subgraph?.events?.addEventListener?.(type, later, { signal: abort.signal });
+  }
+  chainCallback(box, "onConfigure", later);
+  chainCallback(box, "onRemoved", () => {
+    abort.abort();
+    watchedBoxes.delete(box);
+    for (const state of box.__ausbossLoraCards?.values() ?? []) unmountCard(state, { resize: false });
+    box.__ausbossLoraCards?.clear();
+  });
+  later();
+}
+
+function unmountCard(state, { resize = true } = {}) {
+  liveCards.delete(state);
+  state.disposed = true;
+  state.nameObserver?.disconnect();
+  closePopup();
+  try {
+    state.node.removeWidget?.(state.domWidget);
+  } catch {
+    state.domWidget?.onRemove?.();
+  }
+  if (resize) {
+    state.node.setSize?.([state.node.size[0], state.node.computeSize?.()[1] ?? state.node.size[1]]);
+    state.node.setDirtyCanvas?.(true, true);
+  }
+}
+
+// ---------- node install ----------
+
+// The row card, on a LoRA Loader or on a box that holds one (`box`:
+// { inputName, loader }). Returns its state.
+function mountCard(node, { box = null, separatorWidget = null, onMissingWidget = null } = {}) {
+  installStyles();
+  const settings = loadSettings(SETTINGS_SCOPE, SETTINGS_SCHEMA);
+  // Unified strengths are the hard default: separate_strengths is per-node
+  // (persist:false in the schema), so any stored value is legacy noise from
+  // before it stopped persisting - never a reason to split a fresh node.
+  settings.separate_strengths = false;
+  const panel = el("div", "ausboss-lora-panel");
+  // A box card sits under the box's own slots: a box's slots are whatever
+  // its subgraph has, so there is no empty band to climb into.
+  const reclaim = box ? 0 : BAND_RECLAIM;
+  const state = { node, box, widget: null, owner: null, panel, rows: [], settings, renderedValue: null, reclaim };
+  const source = rowsSource(state);
+  if (!source.widget) return null;
+  state.widget = source.widget;
+  state.owner = source.owner;
+  state.note = source.note;
+  state.readOnly = Boolean(source.readOnly);
+  if (box) hideWidget(source.widget);
+  state.rows = parseRows(state.widget.value);
+  state.renderedValue = state.widget.value;
+  state.toggleSnapshot = snapshotEnabled(state.rows);
+  installStackKeyboard(state);
+  state.separatorWidget = separatorWidget;
+  // A missing file reads the way its loader is set to treat it.
+  state.onMissingWidget = box ? box.loader?.widgets?.find((item) => item.name === "on_missing") : onMissingWidget;
+
+  const domWidget = node.addDOMWidget(box ? `ausboss_lora_rows:${box.inputName}` : "ausboss_lora_rows", "ausboss_lora_rows", panel, {
+    serialize: false,
+    hideOnZoom: false,
+    getMinHeight: () => panelHeight(state) + WIDGET_FRAME - reclaim,
+  });
+  keepDomWidgetWidthAuto(domWidget);
+  // Not saved with the workflow either: options.serialize only keeps it out
+  // of the prompt, and saved values come back by position.
+  domWidget.serialize = false;
+  state.domWidget = domWidget;
+  // fillNodeHeight, not a pinned computeSize: the panel joins the layout's
+  // free-space split, follows the node when it is dragged taller (the add
+  // button stays on the bottom edge), and a floor that carries WIDGET_FRAME
+  // guarantees the element box never comes up short of the rows. The width
+  // minimum rides the same call so the node cannot shrink to where the row's
+  // fixed-width controls would hang past its right edge. The floor sheds
+  // the reclaimed pixels because they come out of the slot band, not out of
+  // the space below it. exactMinWidth: the floor is the node's own width,
+  // without the frontend's padding on top (panel_layout.mjs), so a compact
+  // stack really goes down to it.
+  fillNodeHeight(domWidget, {
+    minWidth: () => panelMinWidth(state),
+    minHeight: () => panelHeight(state) + WIDGET_FRAME - reclaim,
+    minNodeSize: [PANEL_MIN_WIDTH, 160],
+    exactMinWidth: true,
+  });
+  if (reclaim) {
+    // Climb the panel up into the slot band. The layout
+    // assigns this widget a y below the last output slot and a height from
+    // the free-space split; these getters show the element BAND_RECLAIM
+    // higher and taller than assigned, in canvas units, so the offset scales
+    // with zoom and the panel's bottom edge stays exactly where the layout
+    // put it. Writes keep landing in the backing values, so the layout's own
+    // accounting never sees the shift.
+    let assignedY = Number(domWidget.y) || 0;
+    Object.defineProperty(domWidget, "y", {
+      configurable: true,
+      get: () => Math.max(14, assignedY - reclaim),
+      set: (value) => { assignedY = Number(value) || 0; },
+    });
+    // The wrapper's height still comes from the layout (its computedHeight
+    // feeds node sizing, so it cannot be inflated without a feedback loop);
+    // the y pin moves the whole box up, leaving it BAND_RECLAIM short at the
+    // bottom. The panel stretches past its wrapper by exactly that much -
+    // inner CSS pixels are pre-transform canvas units, so this stays correct
+    // at every zoom.
+    panel.style.height = `calc(100% + ${reclaim}px)`;
+  }
+
+  renderRows(state);
+  refreshAvailable(state);
+  node.setSize?.([Math.max(336, node.size?.[0] || 336), node.computeSize?.()[1] || 220]);
+  liveCards.add(state);
+  ensureRedrawHook();
+  watchSelections();
+
+  // Workflow restore and undo may commit values after onConfigure. Reconcile
+  // from the widget after that commit and before the next visible frame.
+  const sync = () => { if (!state.disposed) syncRows(state); };
+  chainCallback(node, "onConfigure", function () {
+    queueMicrotask(() => { sync(); if (!state.disposed) refreshAvailable(state); });
+    requestAnimationFrame(() => { sync(); if (!state.disposed) fitNode(state); });
+  });
+  chainCallback(node, "onDrawForeground", sync);
+  // Another node may rewrite the rows (the Workflow Note's Use it, a
+  // Workflow Switches switch). Nodes 2.0 does not draw this node on the
+  // canvas, so follow the change itself.
+  chainCallback(node, "onWidgetChanged", function (name) {
+    if (name === state.widget?.name || name === "loras") sync();
+  });
+  chainCallback(node, "onRemoved", () => {
+    liveCards.delete(state);
+    closePopup();
+    state.nameObserver?.disconnect();
+  });
+  // ComfyUI's R refresh re-reads node definitions; ride it so files that
+  // moved or came back reconnect without touching the node by hand.
+  chainCallback(node, "refreshComboInNode", function () {
+    if (!state.disposed) runReconnect(state, { quiet: true });
+  });
+  return state;
+}
+
+function installLoraNode(node) {
+  const widget = node.widgets?.find((item) => item.name === "loras");
+  if (!widget) return;
+  hideWidget(widget);
+  if (node.properties && node.properties.ausbossLoraLinked === undefined) {
+    node.properties.ausbossLoraLinked = true;
+  }
+  const settings = loadSettings(SETTINGS_SCOPE, SETTINGS_SCHEMA);
+  // The separator rides a hidden standard widget so save/load and the API
+  // format see it; a workflow restore overwrites this seed right after.
+  const separatorWidget = node.widgets?.find((item) => item.name === "trigger_separator");
+  if (separatorWidget) {
+    hideWidget(separatorWidget);
+    separatorWidget.value = settings.separator;
+  }
+  // Same arrangement for the missing-file policy: a hidden standard combo
+  // carries "skip" | "error" through save/load and the API format.
+  const onMissingWidget = node.widgets?.find((item) => item.name === "on_missing");
+  if (onMissingWidget) {
+    hideWidget(onMissingWidget);
+    onMissingWidget.value = settings.strict_missing ? "error" : "skip";
+  }
+  const state = mountCard(node, { separatorWidget, onMissingWidget });
+  if (state) node.__ausbossLoraState = state;
+}
+
+app.registerExtension({
+  name: "AusBoss.LoraLoader",
+  setup() {
+    watchEnteredBoxes();
+    ensureRedrawHook();
+    watchSelections();
+  },
+  beforeRegisterNodeDef(nodeType, nodeData) {
+    if (nodeData?.name !== NODE_CLASS) return;
+    hideInputsInDef(nodeData, ["loras", "trigger_separator", "on_missing"]);
+    chainCallback(nodeType.prototype, "onNodeCreated", function () {
+      installLoraNode(this);
+    });
+    chainCallback(nodeType.prototype, "onConfigure", function () {
+      resetUnknownValues(this.widgets, RESET_UNKNOWN);
+    });
+  },
+  // A box (subgraph node) shows the rows of a loader inside once they come
+  // up to it, from the loader's gear or the frontend's own widget list.
+  nodeCreated(node) {
+    if (node?.isSubgraphNode?.()) watchBox(node);
+  },
+  loadedGraphNode(node) {
+    if (node?.isSubgraphNode?.()) watchBox(node);
+  },
+});

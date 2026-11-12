@@ -1,0 +1,152 @@
+{
+ "batch": 2,
+ "messages": [
+  {
+   "text": "LaMa Inpaint expected images in BHWC format."
+  },
+  {
+   "text": "LaMa Inpaint expected masks in BHW format."
+  },
+  {
+   "text": "LaMa Inpaint needs one mask for the whole image batch or one mask per image."
+  },
+  {
+   "text": "LaMa Inpaint received non-finite image values."
+  },
+  {
+   "text": "LaMa Inpaint received non-finite mask values."
+  },
+  {
+   "text": "LaMa Inpaint requires at least one RGB image."
+  },
+  {
+   "text": "Latent Size needs ComfyUI and PyTorch to make a latent."
+  },
+  {
+   "text": "Layout Boxes could not read its boxes: the saved layout is not valid JSON. Press Clear on the node and draw the boxes again."
+  },
+  {
+   "text": "Layout Boxes could not read its boxes: the saved layout should be {\"v\": 1, \"boxes\": [...]}. Press Clear on the node and draw the boxes again."
+  },
+  {
+   "text": "LoRA stack must be a JSON list of rows."
+  },
+  {
+   "text": "Load Image + Pad: source_image must be a BHWC IMAGE batch."
+  },
+  {
+   "text": "Mask Refine expected a BHW MASK."
+  },
+  {
+   "text": "Mask Refine expected guide_image as a BHWC RGB IMAGE batch."
+  },
+  {
+   "text": "Mask Refine needs one guide frame for the whole mask batch or one per mask."
+  },
+  {
+   "text": "Mask by Name expected the detector's masks as one N x H x W stack."
+  },
+  {
+   "text": "Math Expression cannot raise a negative number to a fractional power."
+  },
+  {
+   "text": "Math Expression divided by zero."
+  },
+  {
+   "text": "Math Expression does not allow attribute access."
+  },
+  {
+   "text": "Math Expression does not allow subscripts."
+  },
+  {
+   "text": "Math Expression expected the expression as text."
+  },
+  {
+   "text": "Math Expression produced a non-finite number (inf or nan)."
+  },
+  {
+   "text": "Math Expression produced a number too large to represent."
+  },
+  {
+   "text": "Math Expression received an empty expression."
+  },
+  {
+   "text": "Network source paths are not allowed."
+  },
+  {
+   "text": "No picture was sent."
+  },
+  {
+   "text": "Padding expected a BHWC IMAGE batch."
+  },
+  {
+   "text": "Pick a video from the node's Outputs list first."
+  },
+  {
+   "text": "Realign to Source: edited and source must be IMAGE batches."
+  },
+  {
+   "text": "Realign to Source: empty_fill 'source' needs the source image."
+  },
+  {
+   "text": "Realign to Source: the stitcher input needs a stitcher from Load Image + Pad."
+  },
+  {
+   "text": "Realign to Source: the stitcher's canvas is not an IMAGE batch."
+  },
+  {
+   "text": "Realign to Source: this stitcher does not say where the picture sits on its canvas; use the one from Load Image + Pad or Image Crop + Rotate + Pad."
+  },
+  {
+   "text": "Remove \"keep the clip's clothes\" or the looks like line. This appearance hint replaces the whole look."
+  },
+  {
+   "text": "Save Image requires ComfyUI's folder_paths at runtime."
+  },
+  {
+   "text": "Save Image: JPEG XL needs the optional pillow-jxl-plugin (add the pillow-jxl-plugin package to ComfyUI's python)."
+  },
+  {
+   "text": "Save Image: that is not a run it is holding."
+  },
+  {
+   "text": "Save Image: that picture is not in this run."
+  },
+  {
+   "text": "Save Image: the file already exists and on_existing is 'error'."
+  },
+  {
+   "text": "Save Image: the linked filename is empty. Feed it a name or unlink it to compose the name here."
+  },
+  {
+   "text": "Save Video expected a BHWC IMAGE batch."
+  },
+  {
+   "text": "Save Video needs an fps greater than zero."
+  },
+  {
+   "text": "Save Video requires ComfyUI's folder_paths at runtime."
+  },
+  {
+   "text": "Save Video's video input expects a ComfyUI core VIDEO object."
+  },
+  {
+   "text": "Save Video: connect either a frames batch or a video to encode."
+  },
+  {
+   "text": "Save Video: the connected video carries no frames."
+  },
+  {
+   "text": "Save destination must stay inside ComfyUI's output folder."
+  },
+  {
+   "text": "Select Every Nth needs an nth of at least 1."
+  },
+  {
+   "text": "Select Every Nth needs an offset of 0 or more."
+  },
+  {
+   "text": "Select Frame expected a BHWC IMAGE batch."
+  }
+ ]
+}

@@ -1,0 +1,151 @@
+"""LaMa Inpaint 🆎."""
+
+from __future__ import annotations
+
+from ._execution_helpers import ignore_extra_inputs
+from ._lama_helpers import DEFAULT_MODEL_NAME, list_lama_models, run_lama_inpaint
+from ._preview_helpers import preview_payload, temp_prefix
+
+
+class AusBossLaMaInpaint:
+    CATEGORY = "🆎 AusBoss/Inpaint"
+    DESCRIPTION = (
+        "Removes masked content with a TorchScript LaMa model while preserving "
+        "unmasked pixels. Models are read from ComfyUI/models/lama and are never "
+        "downloaded by the node."
+    )
+    SEARCH_ALIASES = ["lama", "inpaint", "watermark remover", "object removal", "ausboss"]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        models = list_lama_models()
+        return {
+            "required": {
+                "image": (
+                    "IMAGE",
+                    {"tooltip": "BHWC images or video frames to inpaint."},
+                ),
+                "mask": (
+                    "MASK",
+                    {
+                        "tooltip": (
+                            "White areas are replaced. One mask may be broadcast "
+                            "across the full image batch."
+                        )
+                    },
+                ),
+                "model": (
+                    models,
+                    {
+                        "default": DEFAULT_MODEL_NAME if DEFAULT_MODEL_NAME in models else models[0],
+                        "tooltip": (
+                            "The LaMa model from ComfyUI/models/lama. Only known copies "
+                            "of big-lama.pt open; any other file stops the run."
+                        ),
+                    },
+                ),
+            },
+            "optional": {
+                "preview": (
+                    "BOOLEAN",
+                    {
+                        "default": True,
+                        "tooltip": (
+                            "Show this node's result on its face. Off skips "
+                            "writing the preview file to ComfyUI's temp folder."
+                        ),
+                    },
+                ),
+            },
+            # The executor injects the node's graph id here for the live frame
+            # badge. Hidden entries never become widgets or sockets, so the
+            # visible inputs and the saved widgets_values are unchanged;
+            # declaring UNIQUE_ID does add the node id to the cache signature.
+            "hidden": {"unique_id": "UNIQUE_ID"},
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    OUTPUT_TOOLTIPS = (
+        "Inpainted BHWC image batch with the original dimensions and unmasked pixels preserved.",
+    )
+    FUNCTION = "inpaint"
+
+    def __init__(self):
+        self._prefix = temp_prefix("lama_inpaint")
+
+    def inpaint(self, image, mask, model, unique_id=None, preview=True):
+        # A video inpaint streams each finished frame to the panel as it goes;
+        # this is the still that stays there afterwards, and the only preview a
+        # single-image run ever had - it used to finish with a blank panel.
+        # With the preview off neither the stream nor the still is written.
+        inpainted = run_lama_inpaint(image, mask, model, node_id=unique_id if preview else None)
+        if not preview:
+            return (inpainted,)
+        return preview_payload(inpainted, self._prefix, "LaMa Inpaint", (inpainted,))
+
+    @classmethod
+    @ignore_extra_inputs
+    def VALIDATE_INPUTS(cls, model):
+        # Only the model is named: a failure is filed once per named input,
+        # and ComfyUI keeps checking the rest. The model skips its list check
+        # so a file dropped in after the list was read still resolves.
+        from ._lama_helpers import resolve_lama_model
+
+        try:
+            resolve_lama_model(model)
+        except Exception as exc:
+            return f"LaMa Inpaint: {exc}"
+        return True
+
+
+class AusBossLegacySimpleWatermarkRemover:
+    """Compatibility contract for the original published workflow."""
+
+    CATEGORY = "🆎 AusBoss/Compatibility"
+    DESCRIPTION = (
+        "Compatibility alias for older workflows that stored the class type "
+        "'SimpleWatermarkRemover'. Use LaMa Inpaint 🆎 in new workflows."
+    )
+    DEPRECATED = True
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": (
+                    "IMAGE",
+                    {"tooltip": "BHWC images or video frames to inpaint."},
+                ),
+                "mask": (
+                    "MASK",
+                    {"tooltip": "White areas are replaced."},
+                ),
+                "method": (
+                    ["LAMA"],
+                    {"default": "LAMA", "tooltip": "Legacy engine selector."},
+                ),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    OUTPUT_TOOLTIPS = ("Inpainted BHWC image batch.",)
+    FUNCTION = "inpaint"
+
+    def inpaint(self, image, mask, method):
+        if method != "LAMA":
+            raise ValueError("SimpleWatermarkRemover 兼容模式只支持 LAMA。")
+        return (run_lama_inpaint(image, mask, DEFAULT_MODEL_NAME),)
+
+
+NODE_CLASS_MAPPINGS = {
+    "AUSBOSS_NODES_LaMaInpaint": AusBossLaMaInpaint,
+    "SimpleWatermarkRemover": AusBossLegacySimpleWatermarkRemover,
+}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "AUSBOSS_NODES_LaMaInpaint": "LaMa Inpaint 🆎",
+    "SimpleWatermarkRemover": "Simple Watermark Remover (AusBoss Compatibility)",
+}
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]

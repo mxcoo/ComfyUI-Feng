@@ -1,0 +1,1075 @@
+// The in-node preview panel for LaMa Inpaint, Mask Refine, Mask by Name,
+// Select Frame and Save Image.
+//
+// It shows this node's own result once it has one, and falls back to a
+// thumbnail of whatever feeds its IMAGE/MASK input before the graph has run.
+// ComfyUI's own preview for the same result is stood down (see
+// shared/core_preview.mjs), so the node shows one picture, in this panel,
+// rather than one here and another underneath the node.
+//
+// The panel is fully inert (pointer-events: none) so clicks fall through, the
+// node stays draggable from its body, and wheel zoom belongs to the graph.
+//
+// Save Image can also show the picture while it is being made: its `steps`
+// switch lays each sampling step over the stage, with a Stop button on the
+// bar (shared/step_preview.mjs).
+
+import { panelSwitch } from "../shared/panel_controls.mjs";
+import { api } from "../../../../scripts/api.js";
+import { app } from "../../../../scripts/app.js";
+import { isForeignRun } from "../shared/prompt_scope.mjs";
+import { executionIdOf, nodeByExecutionId } from "../shared/graph_ids.mjs";
+import { FONT_UI, RADIUS_CONTROL, RADIUS_XS, THEME as T } from "../shared/theme.mjs";
+import { chainCallback, keepDomWidgetWidthAuto, notifyAusbossChange } from "../shared/index.mjs";
+import { ensureNodeMinHeight, fillNodeHeight, growToNodeFloor } from "../shared/panel_layout.mjs";
+import { suppressCoreImagePreview } from "../shared/core_preview.mjs";
+import { autoMaskValues } from "../shared/mask_auto.mjs";
+import { hideInputsInDef, hideWidget, setWidgetVisible } from "../shared/widget_visibility.mjs";
+import { makePictureStepper } from "../shared/picture_stepper.mjs";
+import { ALL, allLabel, gridShape, heldPlaces, keepIndex, stepIndex, stepWithAll } from "../shared/picture_steps.mjs";
+import { addStepConsumer, mountStepOverlay, showsStepsOn, stepRun, stopStepRun, watchSteps } from "../shared/step_preview.mjs";
+import {
+  describeNodePreview,
+  describeSourcePreview,
+  outputLocatorId,
+  outputRecordCount,
+  outputRecordQuery,
+  placeholderText,
+  staleText,
+  sourceFileWidget,
+  upstreamNode,
+} from "../shared/input_preview.mjs";
+
+const CSS_ID = "ausboss-input-preview-css";
+const WIDGET_NAME = "ausboss_input_preview";
+// The stage's floor, and the node's: narrower than this and the AUTO
+// button and the switch have nowhere to sit.
+const STAGE_HEIGHT = 140;
+const PANEL_MIN_WIDTH = 200;
+// The bar above the stage: the node's tools on the left, the preview
+// switch on the right. It is the whole panel while the preview is off, so
+// the switch is always in the same place and the stage simply goes away.
+const BAR_HEIGHT = 20;
+const BAR_GAP = 6;
+const BAR_PADDING = 2;
+const PANEL_HEIGHT = STAGE_HEIGHT + BAR_HEIGHT + 4 + 16;
+const OFF_HEIGHT = BAR_HEIGHT + 16;
+const INPUT_SIDE = 1; // LiteGraph.INPUT
+// A run that left this many pictures or fewer opens with all of them side
+// by side. More than that and each would be a speck, so the arrows go
+// through them one at a time, as before.
+const GRID_MAX = 48;
+const GRID_GAP = 4;
+// The node's height from before its preview was switched off, so switching
+// it back on returns the node to it (saved with the workflow).
+const HEIGHT_PROPERTY = "ausboss_preview_height";
+// Every panel alive on a canvas, so a restore of all outputs reaches each one,
+// and for the run events below.
+const livePanels = new Set();
+
+// Mask Refine opens on expand and blur alone. The other five are real
+// controls, not clutter, but they answer questions most masks never ask, and
+// a seven-widget node reads as seven decisions you have to make before it
+// will work. They are one click away and their values are untouched while
+// hidden, so a workflow that set them keeps them.
+const MASK_ADVANCED_WIDGETS = [
+  "fill_holes",
+  "max_hole_size",
+  "smooth",
+  "black_point",
+  "white_point",
+  "edge_refine",
+];
+const ADVANCED_PROPERTY = "ausboss_show_advanced";
+
+const NODE_CONFIG = {
+  AUSBOSS_NODES_LaMaInpaint: { inputName: "image", noun: "图片" },
+  AUSBOSS_NODES_RefineMask: {
+    inputName: "mask",
+    noun: "a mask",
+    advanced: MASK_ADVANCED_WIDGETS,
+    tools: [
+      { label: "AUTO", title: "自动：按遮罩大小设置扩张和模糊。它读的是这个节点做的遮罩，所以先把工作流跑一次。", action: applyAutoValues },
+      { label: "MORE", title: "展开遮罩高级控制", action: toggleAdvanced },
+    ],
+  },
+  // Shows the picture with what it found tinted. FIND runs this node alone,
+  // so the mask can be checked before anything after it runs; the readout
+  // says how many things matched.
+  AUSBOSS_NODES_MaskByName: {
+    inputName: "image",
+    noun: "图片",
+    tools: [
+      { label: "FIND", title: "现在就找。只跑这个节点，所以别的节点跑之前就能先看到遮罩。", action: findOnly },
+    ],
+    readout: (output) => {
+      const note = output?.ausboss_mask_by_name?.[0];
+      const found = Number(note?.found);
+      if (!Number.isFinite(found)) return null;
+      // How sure SAM 3 was of its best match: a low number is a hint that it
+      // may have picked up something else.
+      const best = Number(note?.sure?.[0]);
+      const sure = found > 0 && Number.isFinite(best) ? ` · 置信度 ${Math.round(best * 100)}%` : "";
+      return { text: `找到 ${found} 个${sure}`, warn: found === 0 };
+    },
+    // A run this node stopped: its own message goes on its face.
+    stopped: (message) => (/^Mask by Name: nothing called/.test(String(message ?? ""))
+      ? { readout: { text: "0 found", warn: true }, note: String(message).replace(/^Mask by Name: n/, "N") }
+      : null),
+  },
+  AUSBOSS_NODES_SelectFrame: { inputName: "frames", noun: "frames" },
+  // Its result is the file it just saved; the card sits above the panel.
+  // SAVE shows only for a run made with Auto save off, which holds its
+  // pictures until this button keeps them.
+  AUSBOSS_NODES_SaveImage: {
+    inputName: "images",
+    noun: "图片",
+    switchTitle: "在这里显示已保存的图片。文件照存不误。",
+    steps: true,
+    tools: [
+      { label: "SAVE", title: "保存正在显示的内容：所有图片，或箭头选中的那一张。", action: keepHeld, held: true },
+    ],
+  },
+};
+
+// The picture sits out of flow, centred in the stage, so it can never set
+// the panel's height. Nodes 2.0 lets a node's content decide its height (the
+// saved size is only a minimum), and an in-flow portrait drawn at full width
+// grew the node past whatever sat under it. That leaves the stage with no
+// height of its own, and a Nodes 2.0 node shrinks as far as its content
+// lets it, so inside one ([data-node-id]) the stage carries its floor
+// itself. The classic layout already keeps the panel that tall.
+function ensureCss() {
+  if (document.getElementById(CSS_ID)) return;
+  const style = document.createElement("style");
+  style.id = CSS_ID;
+  style.textContent = `
+.ausboss-input-preview{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;width:100%;height:100%;padding:0 6px 6px;pointer-events:none;overflow:hidden;}
+.ausboss-input-preview-bar{box-sizing:border-box;flex:none;display:flex;align-items:center;gap:${BAR_GAP}px;height:${BAR_HEIGHT}px;padding:0 ${BAR_PADDING}px;pointer-events:none;}
+.ausboss-input-preview-stage{position:relative;flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;width:100%;overflow:hidden;border:1px solid ${T.rule};border-radius:${RADIUS_CONTROL}px;background:${T.well};}
+[data-node-id] .ausboss-input-preview-stage{box-sizing:border-box;min-height:${STAGE_HEIGHT}px;}
+.ausboss-input-preview.preview-off .ausboss-input-preview-stage{display:none;}
+.ausboss-input-preview.preview-off .ausboss-stepper{display:none;}
+.ausboss-input-preview-stage img,.ausboss-input-preview-stage video{display:none;position:absolute;inset:0;margin:auto;max-width:100%;max-height:100%;object-fit:contain;}
+.ausboss-input-preview-stage.show-image img{display:block;}
+.ausboss-input-preview-stage.show-video video{display:block;}
+.ausboss-input-preview-grid{display:none;position:absolute;inset:0;box-sizing:border-box;gap:${GRID_GAP}px;padding:${GRID_GAP}px;justify-content:center;align-content:center;}
+.ausboss-input-preview-stage.show-grid .ausboss-input-preview-grid{display:grid;}
+.ausboss-input-preview-stage .ausboss-input-preview-grid img{display:block;position:static;margin:0;width:100%;height:100%;min-width:0;min-height:0;max-width:none;max-height:none;object-fit:contain;}
+.ausboss-input-preview-hint{display:none;max-width:86%;color:${T.faint};font:11px/1.35 ${FONT_UI};text-align:center;}
+.ausboss-input-preview-stage:not(.show-image):not(.show-video):not(.show-grid) .ausboss-input-preview-hint{display:block;}
+.ausboss-input-preview-tools{display:flex;gap:4px;pointer-events:auto;}
+.ausboss-input-preview-tool{box-sizing:border-box;height:${BAR_HEIGHT}px;min-width:24px;padding:0 6px;border:1px solid transparent;border-radius:${RADIUS_XS}px;background:${T.fill};color:${T.label};font:600 9.5px/18px ${FONT_UI};letter-spacing:.02em;cursor:pointer;}
+.ausboss-input-preview-tool[hidden]{display:none;}
+.ausboss-input-preview-tool.keep{color:${T.brandInk};background:${T.brandSoft};}
+.ausboss-input-preview-stage .ausboss-input-preview-grid img.kept{outline:2px solid ${T.brand};outline-offset:-2px;}
+.ausboss-input-preview-tool:hover{color:${T.ink};background:${T.fillHover};}
+.ausboss-input-preview-tool.active{color:${T.brandInk};background:${T.brandSoft};}
+.ausboss-input-preview-tool:focus-visible{outline:2px solid ${T.brand};outline-offset:1px;}
+.ausboss-input-preview:not(.preview-off) .ausboss-panel-switch.steps + .ausboss-panel-switch{margin-left:0;}
+.ausboss-input-preview.preview-off .ausboss-panel-switch.steps{display:none;}
+.ausboss-input-preview-tool.ausboss-steps-stop{visibility:hidden;}
+.ausboss-input-preview-tool.ausboss-steps-stop.live{visibility:visible;pointer-events:auto;}
+.ausboss-input-preview-readout{box-sizing:border-box;height:${BAR_HEIGHT}px;padding:0 7px;border:1px solid transparent;border-radius:999px;background:${T.brandSoft};color:${T.brandInk};font:600 9.5px/18px ${FONT_UI};font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none;}
+.ausboss-input-preview-readout:empty{display:none;}
+.ausboss-input-preview-readout.warn{background:${T.warnSoft};color:${T.warnInk};}
+.ausboss-input-preview-note{display:none;position:absolute;left:6px;right:6px;bottom:6px;z-index:6;padding:6px 8px;border:1px solid ${T.warn};border-radius:${RADIUS_CONTROL}px;background:${T.warnSoft};color:${T.warnInk};font:600 11px/1.35 ${FONT_UI};text-align:center;pointer-events:none;}
+.ausboss-input-preview-toast{position:absolute;left:50%;bottom:6px;z-index:5;max-width:88%;padding:3px 7px;border-radius:${RADIUS_XS}px;background:${T.fill};color:${T.inkSoft};font:10px/1.3 ${FONT_UI};text-align:center;transform:translateX(-50%);pointer-events:none;}
+`;
+  document.head.appendChild(style);
+}
+
+// --- panel tools ------------------------------------------------------------
+
+function toast(state, text) {
+  state.toast.textContent = text;
+  state.toast.style.display = text ? "block" : "none";
+  clearTimeout(state.toastTimer);
+  if (text) state.toastTimer = setTimeout(() => toast(state, ""), 2600);
+}
+
+function widgetByName(node, name) {
+  return node.widgets?.find((widget) => widget?.name === name) ?? null;
+}
+
+// Queue this node alone: ComfyUI runs it and what feeds it, nothing after it.
+// The node has to be an output node for that, which Mask by Name is.
+function findOnly(state) {
+  const id = executionIdOf(app.rootGraph ?? app.graph, state.node);
+  if (!id || typeof app.queuePrompt !== "function") {
+    toast(state, "按 Run 找出来。");
+    return;
+  }
+  setNote(state, "");
+  toast(state, "查找中...");
+  Promise.resolve(app.queuePrompt(0, 1, [id])).catch(() => toast(state, "没能启动这次运行。"));
+}
+
+// The small readout beside the tools ("1 found"), and the note laid over the
+// picture when the node stopped the run.
+function setReadout(state, readout) {
+  if (!state.readout) return;
+  state.readout.textContent = readout?.text ?? "";
+  state.readout.classList.toggle("warn", Boolean(readout?.warn));
+}
+
+function setNote(state, text) {
+  if (!state.note) return;
+  state.note.textContent = text ?? "";
+  state.note.style.display = text ? "block" : "none";
+}
+
+function setWidgetValue(node, name, value) {
+  const widget = widgetByName(node, name);
+  if (!widget) return false;
+  widget.value = value;
+  widget.callback?.(value, app.canvas, node);
+  return true;
+}
+
+// The size of whatever the panel is showing - the mask's own resolution once
+// the node has run, the input's before it has.
+//
+// The element is safe to measure: /view serves the file at its stored size
+// whatever the width, height and preview parameters in the query say. Those
+// are the dimensions the frontend already knew, echoed back, and the server
+// reads none of them as a resize (its preview parameter only re-encodes the
+// format, see server.py).
+function previewSize(state) {
+  if (state.img.naturalWidth > 0) {
+    return { width: state.img.naturalWidth, height: state.img.naturalHeight };
+  }
+  if (state.video.videoWidth > 0) {
+    return { width: state.video.videoWidth, height: state.video.videoHeight };
+  }
+  return null;
+}
+
+function applyAutoValues(state) {
+  const size = previewSize(state);
+  const values = size && autoMaskValues(size.width, size.height);
+  if (!values) {
+    // Nothing measurable on the panel means nothing to scale from. Saying so
+    // beats guessing from a default resolution the mask may not have.
+    toast(state, "先跑一次，自动才能读到遮罩尺寸");
+    return;
+  }
+  setWidgetValue(state.node, "expand", values.expand);
+  setWidgetValue(state.node, "blur", values.blur);
+  toast(state, `${size.width}x${size.height}：外扩 ${values.expand}，模糊 ${values.blur}`);
+  state.node.setDirtyCanvas?.(true, true);
+  notifyAusbossChange();
+}
+
+function advancedShown(node) {
+  node.properties ??= {};
+  return !!node.properties[ADVANCED_PROPERTY];
+}
+
+// Apply the current advanced/simple state to the widgets. Called on build and
+// on every toggle, so a reloaded workflow reopens the way it was left.
+function syncAdvanced(state) {
+  const names = state.advanced;
+  if (!names?.length) return;
+  const shown = advancedShown(state.node);
+  let changed = false;
+  const card = state.node.__ausbossCard;
+  if (card) {
+    // The widget card owns these rows now (js/widget_cards); it reads the
+    // same node property, so the button only has to ask it to re-read.
+    card.refresh?.();
+  } else {
+    for (const name of names) {
+      const widget = widgetByName(state.node, name);
+      if (widget && setWidgetVisible(widget, shown)) changed = true;
+    }
+  }
+  const button = state.toolButtons?.MORE;
+  // The widget card (js/widget_cards) mounts right after this panel in the
+  // same creation pass; once it is there its own disclosure is the switch.
+  if (button) queueMicrotask(() => { if (state.node.__ausbossCard) button.style.display = "none"; });
+  if (button) {
+    button.textContent = shown ? "LESS" : "MORE";
+    button.title = shown ? "收起遮罩高级控制" : "展开遮罩高级控制";
+    button.classList.toggle("active", shown);
+  }
+  if (changed) {
+    // The node has to be re-measured or the freed rows leave a gap.
+    state.node.setSize?.(state.node.computeSize());
+    state.node.setDirtyCanvas?.(true, true);
+  }
+}
+
+function toggleAdvanced(state) {
+  state.node.properties ??= {};
+  state.node.properties[ADVANCED_PROPERTY] = !advancedShown(state.node);
+  syncAdvanced(state);
+}
+
+// The preview switch: one small pill at the right of the bar, driving the
+// node's hidden `preview` widget so the backend knows not to write a temp
+// file when nobody is looking. Off, the stage below the bar is gone and the
+// node is just that much shorter.
+function previewEnabled(state) {
+  return state.previewWidget ? state.previewWidget.value !== false : true;
+}
+
+function makePreviewToggle(state, signal) {
+  const button = panelSwitch("Preview", state.switchTitle ?? "在这里显示这个节点的结果。关掉后连预览文件都不往临时目录写。");
+  button.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal });
+  button.addEventListener("click", (event) => {
+    event.preventDefault(); event.stopPropagation();
+    const next = !previewEnabled(state);
+    state.previewWidget.value = next;
+    state.previewWidget.callback?.(next);
+    syncPreviewMode(state, true);
+    notifyAusbossChange();
+  }, { signal });
+  state.switchButton = button;
+  return button;
+}
+
+function installPreviewSwitch(state, signal) {
+  const widget = state.previewWidget;
+  if (!widget) return;
+  hideWidget(widget);
+  state.bar.append(makePreviewToggle(state, signal));
+  chainCallback(state.node, "onConfigure", () => queueMicrotask(() => {
+    if (!state.alive) return;
+    hideWidget(widget);
+    syncPreviewMode(state, false);
+    ensureNodeMinHeight(state.node);
+  }));
+  syncPreviewMode(state, false);
+}
+
+// The steps switch, left of the preview switch: the hidden `step_preview`
+// widget. On, the stage shows each step of the picture while it is being
+// made and the bar gets a Stop button for the run. Off (the default), the
+// node is exactly as it was. It goes away with the preview, which is where
+// the steps would show.
+function stepsEnabled(state) {
+  return state.stepsWidget?.value === true && previewEnabled(state);
+}
+
+function installStepsSwitch(state, signal) {
+  const widget = widgetByName(state.node, "step_preview");
+  if (!widget) return;
+  state.stepsWidget = widget;
+  hideWidget(widget);
+  const button = panelSwitch("分步预览", "生成过程中就在这儿显示图片，一步一步来，带一个停止按钮。默认关闭。");
+  button.classList.add("steps");
+  button.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal });
+  button.addEventListener("click", (event) => {
+    event.preventDefault(); event.stopPropagation();
+    const next = widget.value !== true;
+    widget.value = next;
+    widget.callback?.(next);
+    syncSteps(state);
+    notifyAusbossChange();
+  }, { signal });
+  state.stepsButton = button;
+  const previewToggle = state.switchButton;
+  if (previewToggle?.parentElement === state.bar) state.bar.insertBefore(button, previewToggle);
+  else state.bar.append(button);
+
+  // Stop sits where the node's tools go; it keeps its place while hidden so
+  // the bar never shifts when a run starts.
+  const stop = document.createElement("button");
+  stop.type = "button";
+  stop.className = "ausboss-input-preview-tool ausboss-steps-stop";
+  stop.textContent = "STOP";
+  stop.title = "立即停掉这次运行。队列里的下一次照样会开始。";
+  stop.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal });
+  stop.addEventListener("click", (event) => {
+    event.preventDefault(); event.stopPropagation();
+    Promise.resolve(stopStepRun()).catch(() => toast(state, "没能停掉这次运行。"));
+  }, { signal });
+  state.stopButton = stop;
+  state.bar.prepend(stop);
+
+  state.stepOverlay = mountStepOverlay(state.stage);
+  state.forgetSteps = [
+    addStepConsumer(state.node, () => stepsEnabled(state)),
+    watchSteps((run) => syncSteps(state, run)),
+  ];
+  chainCallback(state.node, "onConfigure", () => queueMicrotask(() => {
+    if (!state.alive) return;
+    hideWidget(widget);
+    syncSteps(state);
+  }));
+}
+
+// Draw the run on this node: its steps while they feed it, where it stopped
+// if it never got to save, and the saved picture again once it has.
+function syncSteps(state, run = stepRun()) {
+  const overlay = state.stepOverlay;
+  if (!overlay) return;
+  // An empty stage says when the run is on its way, not to start one.
+  if (typeof state.placeholder === "boolean") state.hint.textContent = placeholderText(state.placeholder, state.noun, runningFor(state, run));
+  const on = stepsEnabled(state);
+  if (state.stepsButton) {
+    state.stepsButton.setAttribute("aria-checked", String(state.stepsWidget?.value === true));
+  }
+  state.stopButton?.classList.toggle("live", on && run.status === "running");
+  if (!on) {
+    overlay.hide();
+    return;
+  }
+  const thisRun = (id) => id !== null && id !== undefined && String(id) === String(run.promptId);
+  if (run.status === "running") {
+    // Saved already in this run: its own picture stays.
+    if (thisRun(state.stepsSaved)) return;
+    if (run.url && showsStepsOn(state.node, run)) {
+      state.stepsShown = run;
+      overlay.show(run, { saves: true });
+    } else if (!thisRun(state.stepsShown?.promptId)) {
+      overlay.hide();
+    }
+    return;
+  }
+  if (run.status === "stopped" && thisRun(state.stepsShown?.promptId) && !thisRun(state.stepsSaved)) {
+    overlay.show({ ...state.stepsShown, status: "stopped" }, { saves: true });
+    return;
+  }
+  // The last step stays up until the saved picture has loaded under it.
+  if (thisRun(state.stepsHeld)) return;
+  overlay.hide();
+}
+
+// What a run on its way says on an empty stage: false when none is.
+function runningFor(state, run = stepRun()) {
+  if (!state.stepOverlay || run.status !== "running") return false;
+  return stepsEnabled(state) ? "steps" : "result";
+}
+
+// Saved while the steps were up: hold them until the stage has its picture,
+// or a few seconds at most.
+const HOLD_MS = 4000;
+function holdSteps(state) {
+  clearTimeout(state.holdTimer);
+  state.stepsHeld = stepRun().promptId;
+  state.holdTimer = setTimeout(() => releaseSteps(state), HOLD_MS);
+}
+
+function releaseSteps(state) {
+  if (state.stepsHeld === null || state.stepsHeld === undefined) return;
+  clearTimeout(state.holdTimer);
+  state.stepsHeld = null;
+  syncSteps(state);
+}
+
+function syncPreviewMode(state, resize) {
+  const enabled = previewEnabled(state);
+  state.root.classList.toggle("preview-off", !enabled);
+  if (state.switchButton) {
+    state.switchButton.setAttribute("aria-checked", String(enabled));
+  }
+  if (!enabled) {
+    // Nothing to show and nothing to fetch while it is off.
+    clearMedia(state);
+  }
+  if (resize) {
+    const node = state.node;
+    node.properties ??= {};
+    const floor = node.computeSize?.()[1] ?? (enabled ? PANEL_HEIGHT : OFF_HEIGHT);
+    if (!enabled) {
+      // Off: remember the height, then shrink to what is left.
+      const height = Number(node.size?.[1]);
+      if (Number.isFinite(height) && height > floor) node.properties[HEIGHT_PROPERTY] = Math.round(height);
+      node.setSize?.([node.size?.[0] ?? PANEL_MIN_WIDTH, floor]);
+    } else {
+      // On: back to the height it had, with the last result in it.
+      const before = Number(node.properties[HEIGHT_PROPERTY]);
+      delete node.properties[HEIGHT_PROPERTY];
+      const height = Math.max(floor, Number.isFinite(before) ? before : 0, Number(node.size?.[1]) || 0);
+      node.setSize?.([node.size?.[0] ?? PANEL_MIN_WIDTH, height]);
+    }
+    node.setDirtyCanvas?.(true, true);
+  }
+  if (enabled && state.alive) scheduleRefresh(state);
+  syncSteps(state);
+}
+
+function buildTools(state, tools, signal) {
+  const bar = document.createElement("div");
+  bar.className = "ausboss-input-preview-tools";
+  state.toolButtons = {};
+  for (const tool of tools) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ausboss-input-preview-tool";
+    button.textContent = tool.label;
+    button.title = tool.title;
+    // Stop the graph from seeing the click as a canvas drag on the node.
+    button.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      tool.action(state);
+    }, { signal });
+    state.toolButtons[tool.label] = button;
+    if (tool.held) { button.hidden = true; state.keepButton = button; }
+    bar.append(button);
+  }
+  return bar;
+}
+
+function showHint(state, text) {
+  state.stage.classList.remove("show-image", "show-video", "show-grid");
+  state.hint.textContent = text;
+  state.placeholder = null;
+  releaseSteps(state);
+}
+
+// The placeholder, which changes with the run (syncSteps).
+function showPlaceholder(state, connected) {
+  showHint(state, placeholderText(connected, state.noun, runningFor(state)));
+  state.placeholder = connected;
+}
+
+function showMedia(state, kind) {
+  state.stage.classList.toggle("show-image", kind === "image");
+  state.stage.classList.toggle("show-video", kind === "video");
+  state.stage.classList.toggle("show-grid", kind === "grid");
+  state.placeholder = null;
+  releaseSteps(state);
+}
+
+function clearMedia(state) {
+  state.img.removeAttribute("src");
+  state.video.pause?.();
+  state.video.removeAttribute("src");
+  clearGrid(state);
+}
+
+function clearGrid(state) {
+  if (!state.gridKey) return;
+  state.gridKey = "";
+  state.grid?.replaceChildren();
+}
+
+// Every picture of the run at once, each as big as the stage allows.
+function layoutGrid(state) {
+  const cells = [...(state.grid?.children ?? [])];
+  if (!cells.length) return;
+  const loaded = cells.find((cell) => cell.naturalWidth > 0 && cell.naturalHeight > 0);
+  const aspect = loaded ? loaded.naturalWidth / loaded.naturalHeight : 1;
+  const { columns, rows } = gridShape(cells.length, state.stage.clientWidth, state.stage.clientHeight, aspect);
+  // Tracks the size of one picture, so the pictures sit together in the
+  // middle of the stage with no bands between the rows.
+  const wide = (state.stage.clientWidth - GRID_GAP * (columns + 1)) / columns;
+  const tall = (state.stage.clientHeight - GRID_GAP * (rows + 1)) / rows;
+  if (!(wide > 0) || !(tall > 0)) return;
+  const width = Math.floor(Math.min(wide, tall * aspect));
+  const height = Math.floor(width / aspect);
+  state.grid.style.gridTemplateColumns = `repeat(${columns}, ${width}px)`;
+  state.grid.style.gridTemplateRows = `repeat(${rows}, ${height}px)`;
+}
+
+function showGrid(state, count) {
+  const urls = Array.from({ length: count }, (_, index) => storedResultUrl(state.node, index) ?? "");
+  const key = urls.join("\n");
+  if (state.gridKey !== key) {
+    state.gridKey = key;
+    state.grid.replaceChildren(...urls.map((url, index) => {
+      const cell = document.createElement("img");
+      cell.alt = `第 ${index + 1} / ${count} 张`;
+      cell.decoding = "async";
+      // The first picture to load tells the grid the shape to lay out for.
+      cell.addEventListener("load", () => layoutGrid(state), { once: true });
+      cell.src = url;
+      return cell;
+    }));
+  }
+  state.img.removeAttribute("src");
+  state.video.pause?.();
+  state.video.removeAttribute("src");
+  layoutGrid(state);
+  showMedia(state, "grid");
+}
+
+// Each source has one hook, with subscribers that can leave in any order.
+const sourceWatchers = new WeakMap();
+function unwatchSource(state) {
+  const watched = state.watched;
+  state.watched = null;
+  if (!watched) return;
+  watched.subscribers.delete(state);
+  if (!watched.subscribers.size && watched.widget.callback === watched.hook) {
+    watched.widget.callback = watched.prior;
+    sourceWatchers.delete(watched.widget);
+  }
+}
+
+function rewatchSource(state, source) {
+  const widget = sourceFileWidget(source);
+  if (state.watched?.widget === widget) return;
+  unwatchSource(state);
+  if (!widget) return;
+  let watched = sourceWatchers.get(widget);
+  if (!watched) {
+    const prior = widget.callback;
+    const subscribers = new Set();
+    const hook = function (...args) {
+      const result = prior?.apply(this, args);
+      for (const subscriber of subscribers) if (subscriber.alive) scheduleRefresh(subscriber);
+      return result;
+    };
+    watched = { widget, prior, hook, subscribers };
+    sourceWatchers.set(widget, watched);
+    widget.callback = hook;
+  }
+  watched.subscribers.add(state);
+  state.watched = watched;
+}
+
+// The node's stored output as a /view URL, for Nodes 2.0, where node.imgs
+// stays empty (see suppressCoreImagePreview). The frontend keeps this record
+// on every run and restores it with the workflow. One cache-buster per
+// record: an overwritten file reloads after the next run, and a plain refresh
+// never reloads the picture.
+const storedRand = new WeakMap();
+function storedResultUrl(node, index = null) {
+  const record = app.nodeOutputs?.[outputLocatorId(node)];
+  const query = outputRecordQuery(record, index);
+  if (!query) return null;
+  if (!storedRand.has(record)) storedRand.set(record, app.getRandParam?.() ?? "");
+  return api.apiURL(`/view?${query}${app.getPreviewFormatParam?.() ?? ""}${storedRand.get(record)}`);
+}
+
+// Several pictures from one run (a list, or a batch Save Image saved one by
+// one): they all show side by side, and the arrows in the bar go on to each
+// one by itself and back round to all of them. One picture keeps the panel
+// as it was, with no arrows.
+function resultCount(state) {
+  if (state.stale || state.resultGone) return 0;
+  return outputRecordCount(app.nodeOutputs?.[outputLocatorId(state.node)]);
+}
+
+// The arrows share the bar with the node's tools and the preview switch.
+// While they show, the node's floor is what the bar holds, measured.
+function previewMinWidth(state) {
+  if (!state?.stepper || state.stepper.root.hidden) return PANEL_MIN_WIDTH;
+  const parts = [...state.bar.children].map((part) => part.offsetWidth).filter((width) => width > 0);
+  if (!parts.length || !state.bar.clientWidth) return PANEL_MIN_WIDTH;
+  const needed = parts.reduce((sum, width) => sum + width, 0) + BAR_GAP * (parts.length - 1) + 2 * BAR_PADDING;
+  return Math.max(PANEL_MIN_WIDTH, Math.ceil(state.node.size[0] - state.bar.clientWidth + needed));
+}
+
+// --- pictures held until Save (Save Image with Auto save off) ---------------
+
+// The pictures this node is holding, in the order it shows them. Empty when
+// the last run saved its pictures itself.
+function heldPictures(state) {
+  if (state.stale || state.resultGone) return [];
+  return heldPlaces(app.nodeOutputs?.[outputLocatorId(state.node)]);
+}
+
+// Which of the shown pictures are kept, by their place on the node.
+function keptOf(state, held) {
+  const key = held.map((picture) => `${picture.token}_${picture.index}`).join(" ");
+  if (state.kept?.key !== key) state.kept = { key, indexes: new Set() };
+  return state.kept.indexes;
+}
+
+// A click keeps every picture, or only the one the arrows picked. With the
+// preview off there is no picture to pick, so it keeps them all.
+function keepsAll(state, count) {
+  return count < 2 || showsAll(state, count) || !previewEnabled(state);
+}
+
+// The button says what a click will do: SAVE ALL over the grid, SAVE over
+// one picture, SAVED once there is nothing left to keep there.
+function syncHeld(state, count = resultCount(state)) {
+  const button = state.keepButton;
+  if (!button) return;
+  const held = heldPictures(state);
+  button.hidden = !held.length || count < 1;
+  if (button.hidden) return;
+  const kept = keptOf(state, held);
+  const all = keepsAll(state, count);
+  const done = all ? kept.size >= held.length : kept.has(state.index);
+  button.textContent = state.keeping ? "SAVING" : done ? "SAVED" : all && count > 1 ? "全部保存" : "SAVE";
+  button.classList.toggle("keep", !done);
+  button.disabled = Boolean(state.keeping);
+  [...(state.grid?.children ?? [])].forEach((cell, index) => cell.classList.toggle("kept", kept.has(index)));
+}
+
+async function keepHeld(state) {
+  const held = heldPictures(state);
+  if (!held.length || state.keeping) return;
+  const count = resultCount(state);
+  const wanted = keepsAll(state, count) ? held.map((_, place) => place) : [state.index];
+  // One request for each run, in the order the pictures show.
+  const runs = new Map();
+  for (const place of wanted) {
+    const picture = held[place];
+    if (!picture) continue;
+    if (!runs.has(picture.token)) runs.set(picture.token, []);
+    runs.get(picture.token).push(picture.index);
+  }
+  state.keeping = true;
+  syncHeld(state);
+  const kept = keptOf(state, held);
+  const saved = [];
+  let skipped = 0;
+  try {
+    for (const [token, picks] of runs) {
+      const response = await api.fetchApi("/ausboss/save_image/keep", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, picks }),
+      });
+      const answer = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(answer.error || "没能保存。");
+      if (!state.alive) return;
+      const done = new Set(answer.kept ?? []);
+      held.forEach((picture, place) => {
+        if (picture.token === token && done.has(picture.index)) kept.add(place);
+      });
+      saved.push(...(answer.saved ?? []));
+      skipped += answer.skipped?.length ?? 0;
+    }
+    toast(state, saved.length === 1
+      ? `已保存 ${saved[0].path}`
+      : saved.length
+        ? `已保存 ${saved.length} 张图片`
+        : skipped ? "没保存：文件已存在" : "已保存过");
+  } catch (error) {
+    if (state.alive) toast(state, error?.message || "没能保存。");
+  } finally {
+    state.keeping = false;
+    if (state.alive) syncHeld(state);
+  }
+}
+
+function showsAll(state, count) {
+  return count > 1 && count <= GRID_MAX && state.all !== false;
+}
+
+function stepPicture(state, step) {
+  const count = resultCount(state);
+  if (count < 2) return;
+  if (count > GRID_MAX) {
+    state.index = stepIndex(state.index, count, step);
+  } else {
+    const at = stepWithAll(showsAll(state, count) ? ALL : state.index, count, step);
+    state.all = at === ALL;
+    if (!state.all) state.index = at;
+  }
+  refresh(state);
+}
+
+function refresh(state) {
+  if (!state.alive) return;
+  if (!previewEnabled(state)) {
+    clearMedia(state);
+    syncHeld(state);
+    return;
+  }
+  const source = upstreamNode(state.node, state.inputName);
+  rewatchSource(state, source);
+  const count = resultCount(state);
+  const hidden = state.stepper.root.hidden;
+  state.index = keepIndex(state.index, count);
+  const all = showsAll(state, count);
+  state.stepper.set(state.index, count, all ? allLabel(count) : undefined);
+  syncHeld(state, count);
+  if (state.stepper.root.hidden !== hidden) growToNodeFloor(state.widget);
+  if (state.stale) {
+    // The node ran while its preview was off, so the picture it still has
+    // is from an older run: say so rather than show it.
+    clearMedia(state);
+    showHint(state, staleText());
+    return;
+  }
+  // A node that just stopped the run has no result for this picture: the
+  // one it still holds is from an earlier run (Mask by Name's last find,
+  // tinted), so show what feeds it instead.
+  if (all) {
+    showGrid(state, count);
+    // The grid's cells are new: mark the ones already kept.
+    syncHeld(state, count);
+    return;
+  }
+  clearGrid(state);
+  const described = state.resultGone
+    ? describeSourcePreview(source)
+    : count > 1
+      ? { kind: "url", url: storedResultUrl(state.node, state.index) }
+      : describeNodePreview(state.node, state.inputName, storedResultUrl(state.node));
+  if (!described) {
+    clearMedia(state);
+    showPlaceholder(state, !!source);
+    return;
+  }
+  const url = described.kind === "url"
+    ? described.url
+    : api.apiURL(`/view?${described.query}`);
+  if (described.isVideo) {
+    state.img.removeAttribute("src");
+    if (state.video.getAttribute("src") !== url) {
+      state.video.src = url;
+      state.video.load?.();
+    } else if (state.video.readyState >= 2) {
+      showMedia(state, "video");
+    }
+  } else {
+    state.video.pause?.();
+    state.video.removeAttribute("src");
+    if (state.img.getAttribute("src") !== url) {
+      state.img.src = url;
+    } else if (state.img.complete && state.img.naturalWidth > 0) {
+      showMedia(state, "image");
+    }
+  }
+}
+
+// Connection and widget events can fire in bursts (and mid-load, before links
+// are committed), so refreshes coalesce through one short timer.
+function scheduleRefresh(state) {
+  if (!state.alive) return;
+  if (state.timer) clearTimeout(state.timer);
+  state.timer = setTimeout(() => {
+    state.timer = 0;
+    refresh(state);
+  }, 60);
+}
+
+// Refresh the panel whenever the frontend hangs new images on the node.
+//
+// Watching the property rather than an api event catches both routes that set
+// it - the progress frames streamed during a run and the ui payload delivered
+// when the node finishes - without this file having to know either event name.
+function watchOwnResult(node, state) {
+  let images = node.imgs;
+  try {
+    Object.defineProperty(node, "imgs", {
+      configurable: true,
+      enumerable: true,
+      get: () => images,
+      set: (value) => {
+        images = value;
+        if (state.alive) scheduleRefresh(state);
+      },
+    });
+  } catch {
+    // A frontend that has already sealed the property just means the panel
+    // updates on the next connection or execution event instead.
+  }
+}
+
+function buildPanel(node, config) {
+  if (node.__ausbossInputPreview) return node.__ausbossInputPreview;
+  ensureCss();
+  suppressCoreImagePreview(node);
+
+  const root = document.createElement("div");
+  root.className = "ausboss-input-preview";
+  const stage = document.createElement("div");
+  stage.className = "ausboss-input-preview-stage";
+  const img = document.createElement("img");
+  const video = document.createElement("video");
+  video.muted = true;
+  video.preload = "metadata";
+  video.playsInline = true;
+  const hint = document.createElement("div");
+  hint.className = "ausboss-input-preview-hint";
+  const toastEl = document.createElement("div");
+  toastEl.className = "ausboss-input-preview-toast";
+  toastEl.style.display = "none";
+  const grid = document.createElement("div");
+  grid.className = "ausboss-input-preview-grid";
+  stage.append(img, video, grid, hint, toastEl);
+  const bar = document.createElement("div");
+  bar.className = "ausboss-input-preview-bar";
+  root.append(bar, stage);
+
+  const previewWidget = widgetByName(node, "preview");
+  const enabled = () => (previewWidget ? previewWidget.value !== false : true);
+  const widget = node.addDOMWidget(WIDGET_NAME, "ausboss_input_preview", root, {
+    serialize: false,
+    hideOnZoom: false,
+    getMinHeight: () => (enabled() ? PANEL_HEIGHT : OFF_HEIGHT),
+  });
+  keepDomWidgetWidthAuto(widget);
+  // Not saved with the workflow either: options.serialize only keeps it out
+  // of the prompt, and saved values come back by position.
+  widget.serialize = false;
+  // A floor, not a fixed height. This was a constant-height strip back when it
+  // showed a thumbnail of the node's input; now that it shows the result, it is
+  // a viewport onto a picture, and pinning it left dead space under every node
+  // dragged taller. With the preview off the floor is the bar alone.
+  fillNodeHeight(widget, {
+    minWidth: () => previewMinWidth(node.__ausbossInputPreview),
+    minHeight: () => (enabled() ? PANEL_HEIGHT : OFF_HEIGHT),
+    minNodeSize: [PANEL_MIN_WIDTH, 90],
+    exactMinWidth: true,
+  });
+
+  const abort = new AbortController();
+  const state = node.__ausbossInputPreview = {
+    node,
+    inputName: config.inputName,
+    noun: config.noun,
+    switchTitle: config.switchTitle,
+    advanced: config.advanced,
+    root, bar, stage, img, video, grid, hint, widget, abort,
+    // Several pictures open side by side; the arrows pick one (false).
+    all: true,
+    gridKey: "",
+    toast: toastEl,
+    toastTimer: 0,
+    toolButtons: null,
+    switchButton: null,
+    watched: null,
+    timer: 0,
+    alive: true,
+    previewWidget,
+    index: 0,
+    stepper: null,
+    // Whether the stage shows the placeholder (true: something is connected).
+    placeholder: null,
+  };
+  livePanels.add(state);
+  if (config.tools?.length) bar.append(buildTools(state, config.tools, abort.signal));
+  if (config.readout) {
+    state.readout = document.createElement("span");
+    state.readout.className = "ausboss-input-preview-readout";
+    bar.append(state.readout);
+    state.note = document.createElement("div");
+    state.note.className = "ausboss-input-preview-note";
+    stage.append(state.note);
+  }
+  state.stepper = makePictureStepper({
+    height: BAR_HEIGHT,
+    signal: abort.signal,
+    onStep: (step) => stepPicture(state, step),
+  });
+  bar.append(state.stepper.root);
+  syncAdvanced(state);
+  installPreviewSwitch(state, abort.signal);
+  if (config.steps) installStepsSwitch(state, abort.signal);
+
+  // The grid is laid out for the stage's shape, so a resized node lays it out again.
+  if (typeof ResizeObserver === "function") {
+    const watcher = new ResizeObserver(() => { if (state.alive && state.gridKey) layoutGrid(state); });
+    watcher.observe(stage);
+    abort.signal.addEventListener("abort", () => watcher.disconnect(), { once: true });
+  }
+  img.addEventListener("load", () => showMedia(state, "image"));
+  img.addEventListener("error", () => {
+    if (img.getAttribute("src")) showPlaceholder(state, true);
+  });
+  video.addEventListener("loadeddata", () => showMedia(state, "video"));
+  video.addEventListener("error", () => {
+    if (video.getAttribute("src")) showPlaceholder(state, true);
+  });
+
+  watchOwnResult(node, state);
+  showPlaceholder(state, false);
+  scheduleRefresh(state);
+  return state;
+}
+
+// A node whose preview is off still runs, but sends no picture, so the one
+// it keeps is an older run's. Note that when it starts, from this tab's own
+// runs only; its next result (or a run with the preview on) clears it.
+api.addEventListener("executing", ({ detail }) => {
+  try {
+    const id = typeof detail === "object" && detail !== null ? detail.display_node ?? detail.node : detail;
+    if (id === null || id === undefined || !livePanels.size) return;
+    if (isForeignRun(typeof detail === "object" ? detail?.prompt_id : undefined)) return;
+    const node = nodeByExecutionId(app.rootGraph ?? app.graph, String(id));
+    const state = node?.__ausbossInputPreview;
+    if (state?.alive && !previewEnabled(state)) state.stale = true;
+  } catch {
+    // Never in the way of a run.
+  }
+});
+
+// A node that stopped the run on purpose (Mask by Name found nothing) says so
+// on its own face too, where the person is looking, not only in ComfyUI's
+// error box.
+api.addEventListener("execution_error", ({ detail }) => {
+  try {
+    if (!livePanels.size || isForeignRun(detail?.prompt_id)) return;
+    const stopped = NODE_CONFIG[detail?.node_type]?.stopped?.(detail?.exception_message);
+    if (!stopped) return;
+    const node = nodeByExecutionId(app.rootGraph ?? app.graph, String(detail.node_id));
+    const state = node?.__ausbossInputPreview;
+    if (!state?.alive) return;
+    setReadout(state, stopped.readout);
+    setNote(state, stopped.note);
+    state.resultGone = true;
+    scheduleRefresh(state);
+  } catch {
+    // Never in the way of ComfyUI's own error handling.
+  }
+});
+
+app.registerExtension({
+  name: "ausboss.input_preview",
+  // Reopening a workflow tab restores every node's stored output at once,
+  // with no per-node event; each panel re-reads its own.
+  onNodeOutputsUpdated() {
+    for (const state of livePanels) scheduleRefresh(state);
+  },
+  beforeRegisterNodeDef(nodeType, nodeData) {
+    const config = NODE_CONFIG[nodeData?.name];
+    if (!config) return;
+    hideInputsInDef(nodeData, ["preview", "step_preview"]);
+    chainCallback(nodeType.prototype, "onNodeCreated", function () {
+      buildPanel(this, config);
+    });
+    chainCallback(nodeType.prototype, "onConnectionsChange", function (side) {
+      if (side !== undefined && side !== INPUT_SIDE) return;
+      const state = this.__ausbossInputPreview;
+      if (state) scheduleRefresh(state);
+    });
+    chainCallback(nodeType.prototype, "onConfigure", function () {
+      const state = this.__ausbossInputPreview;
+      queueMicrotask(() => {
+        if (!state?.alive || this.__ausbossInputPreview !== state) return;
+        // onNodeCreated already built the panel before this node's saved
+        // properties existed, so the advanced toggle has to be re-applied
+        // here or a workflow always reopens in the simple state.
+        syncAdvanced(state);
+        scheduleRefresh(state);
+      });
+    });
+    chainCallback(nodeType.prototype, "onExecuted", function (output) {
+      if (isForeignRun()) return;
+      const state = buildPanel(this, config);
+      // A result arrived (Save Image sends one even with its preview off).
+      if (state) { state.stale = false; state.resultGone = false; scheduleRefresh(state); }
+      // Saved: the file's picture replaces the steps.
+      if (state?.stepOverlay) {
+        state.stepsSaved = stepRun().promptId;
+        if (state.stepOverlay.shown) holdSteps(state);
+        syncSteps(state);
+      }
+      if (state && config.readout) {
+        setNote(state, "");
+        const readout = config.readout(output);
+        if (readout) setReadout(state, readout);
+      }
+    });
+    chainCallback(nodeType.prototype, "onRemoved", function () {
+      const state = this.__ausbossInputPreview;
+      if (!state) return;
+      state.alive = false;
+      livePanels.delete(state);
+      if (state.timer) clearTimeout(state.timer);
+      clearTimeout(state.toastTimer);
+      state.timer = 0;
+      state.abort?.abort();
+      unwatchSource(state);
+      clearMedia(state);
+      for (const forget of state.forgetSteps ?? []) forget();
+      clearTimeout(state.holdTimer);
+      this.__ausbossInputPreview = null;
+    });
+  },
+});

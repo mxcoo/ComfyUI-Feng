@@ -10,3 +10,12 @@ presets/user_presets.json
 .idea/
 .DS_Store
 Thumbs.db
+
+# AusBoss 汉化管线的机械中间产物（可由 tools 里的脚本重新生成，译文本身已落在
+# ausboss/zh/nodes.json、web/ausboss/ 与源码里；译文源数据 tools/_zh_out、tools/_py_zh 入库）
+tools/_ausboss_extracted.json
+tools/_zh_tasks/
+tools/_js_tasks/
+tools/_js_out/
+tools/_doc_tasks/
+tools/_doc_out/

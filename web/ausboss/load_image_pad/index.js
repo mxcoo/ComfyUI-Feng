@@ -1,0 +1,346 @@
+import { api } from "../../../../scripts/api.js";
+import { app } from "../../../../scripts/app.js";
+import { isForeignRun } from "../shared/prompt_scope.mjs";
+import { BRAND, chainCallback, keepDomWidgetWidthAuto, notifyAusbossChange } from "../shared/index.mjs";
+import { fillNodeHeight } from "../shared/panel_layout.mjs";
+import { hideInputsInDef, hideWidget } from "../shared/widget_visibility.mjs";
+import { canvasHeightForWidth, parseImageReference } from "../shared/pad_canvas.mjs";
+import { unlistedMedia } from "../shared/media_list.mjs";
+import { createPadStage } from "../shared/pad_panel.mjs";
+
+const NODE_NAME = "AUSBOSS_NODES_LoadImagePad";
+const PANEL_WIDGET = "ausboss_load_image_pad";
+const PAD_MIN_WIDTH = 340;
+const PANEL_CHROME = 12;
+// Stage height the node opens at, plus room for the widget column above it.
+const DEFAULT_NODE_HEIGHT = canvasHeightForWidth(PAD_MIN_WIDTH + 20) + PANEL_CHROME + 300;
+const CSS_ID = "ausboss-loadpad-ui-v1";
+const DEFAULT_SOURCE = { width: 512, height: 512 };
+const CORE_IMAGE_PREVIEW_WIDGET = "$$canvas-image-preview";
+// Optional IMAGE socket; when linked it replaces the file picker.
+const SOURCE_INPUT = "source_image";
+const WIRED_EMPTY_TEXT = "跑一次就能看到连进来的图";
+
+function ensurePadCss() {
+  if (document.getElementById(CSS_ID)) return;
+  const style = document.createElement("style");
+  style.id = CSS_ID;
+  style.textContent = `
+.ausboss-loadpad-root{position:relative;box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;padding:2px 6px 6px;overflow:hidden;}
+.ausboss-loadpad-root canvas{flex:1 1 auto;min-height:0;width:100%;display:block;border:1px solid rgba(0,180,170,.34);border-radius:6px;background:#0c0e10;touch-action:none;}
+.ausboss-loadpad-reset{position:absolute;top:8px;right:12px;height:20px;padding:0 8px;border:1px solid #3a4047;border-radius:4px;background:rgba(20,24,26,.92);color:#8ba3a1;font:600 10.5px/1 system-ui;cursor:pointer;}
+.ausboss-loadpad-reset:hover{color:${BRAND};border-color:${BRAND};}
+`;
+  document.head.appendChild(style);
+}
+
+function findWidget(node, name) {
+  return node.widgets?.find((widget) => widget.name === name);
+}
+
+function isSourceWired(node) {
+  return node.inputs?.find((input) => input?.name === SOURCE_INPUT)?.link != null;
+}
+
+// The wired source's preview from a run's ui payload:
+// { filename, subfolder, type, width, height } or null. width/height are the
+// TRUE source size; the temp file itself is a thumbnail.
+function findStagePreview(message) {
+  const ref = message?.ausboss_pad_preview?.[0] ?? null;
+  const size = message?.ausboss_pad_source?.[0] ?? null;
+  if (!ref?.filename || !Array.isArray(size) || size.length < 2) return null;
+  const width = Math.round(Number(size[0]) || 0);
+  const height = Math.round(Number(size[1]) || 0);
+  if (width < 1 || height < 1) return null;
+  return {
+    filename: String(ref.filename),
+    subfolder: String(ref.subfolder || ""),
+    type: String(ref.type || "temp"),
+    width,
+    height,
+  };
+}
+
+function numberValue(node, name, fallback = 0) {
+  const value = Number(findWidget(node, name)?.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+// Core's image_upload helper installs its own source preview under the
+// widgets; this node draws the source itself, so keep only the useful one.
+function suppressCoreImagePreview(node) {
+  // Nodes 2.0 has no preview widget to remove: it draws the node's images
+  // under the widgets itself unless this flag is set. Classic never reads it.
+  node.hideOutputImages = true;
+  const previewIndex = node.widgets?.findIndex(
+    (widget) => widget.name === CORE_IMAGE_PREVIEW_WIDGET,
+  ) ?? -1;
+  if (previewIndex >= 0) {
+    node.widgets[previewIndex].onRemove?.();
+    node.widgets.splice(previewIndex, 1);
+  }
+  if (node.__ausbossImgsSuppressed) return;
+  node.__ausbossImgsSuppressed = true;
+  const priorAdd = node.addCustomWidget;
+  if (typeof priorAdd === "function") {
+    node.addCustomWidget = function (customWidget) {
+      if (customWidget?.name === CORE_IMAGE_PREVIEW_WIDGET) hideWidget(customWidget);
+      return priorAdd.call(this, customWidget);
+    };
+  }
+  Object.defineProperty(node, "imgs", {
+    configurable: true,
+    enumerable: true,
+    get() { return undefined; },
+    // The MaskEditor sets this right after it writes the picture it saved
+    // into the image widget, without calling the widget back.
+    set() { queueMicrotask(() => node.__ausbossLoadImagePad?.follow?.()); },
+  });
+}
+
+function watchWidget(node, name, onChange) {
+  const target = findWidget(node, name);
+  if (!target || target.__ausbossPadWatch) return;
+  target.__ausbossPadWatch = true;
+  const prior = target.callback;
+  target.callback = function (...args) {
+    const result = prior?.apply(this, args);
+    onChange();
+    return result;
+  };
+}
+
+function buildPanel(node) {
+  if (node.__ausbossLoadImagePad) return node.__ausbossLoadImagePad;
+  const imageWidget = findWidget(node, "image");
+  if (!imageWidget) return null;
+
+  ensurePadCss();
+  suppressCoreImagePreview(node);
+  for (const side of ["left", "top", "right", "bottom"]) {
+    hideWidget(findWidget(node, `pad_${side}`));
+  }
+
+  const root = document.createElement("div");
+  root.className = "ausboss-loadpad-root";
+  const canvas = document.createElement("canvas");
+  // Clears the padding on every side a link does not drive; shown only
+  // while there is some to clear.
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.className = "ausboss-loadpad-reset";
+  reset.textContent = "重置扩边";
+  reset.title = "把所有没连线的边扩边值归 0";
+  root.append(canvas, reset);
+
+  const widget = node.addDOMWidget(PANEL_WIDGET, "ausboss_load_image_pad", root, {
+    serialize: false,
+    hideOnZoom: false,
+    getMinHeight: () => 190,
+  });
+  keepDomWidgetWidthAuto(widget);
+  // Not saved with the workflow either: options.serialize only keeps it out
+  // of the prompt, and saved values come back by position.
+  widget.serialize = false;
+  fillNodeHeight(widget, {
+    minWidth: PAD_MIN_WIDTH,
+    minHeight: 190,
+    minNodeSize: [PAD_MIN_WIDTH, 320],
+    exactMinWidth: true,
+  });
+
+  const state = {
+    node,
+    canvas,
+    imageWidget,
+    bitmap: null,
+    known: false,
+    sourceWidth: DEFAULT_SOURCE.width,
+    sourceHeight: DEFAULT_SOURCE.height,
+    emptyText: "选择或上传图片",
+    loadSerial: 0,
+    // Last run's preview of the wired source, and which mode refresh drew.
+    wiredPreview: null,
+    wired: false,
+  };
+  node.__ausbossLoadImagePad = state;
+
+  const stage = createPadStage(canvas, {
+    getSource: () => ({
+      bitmap: state.bitmap,
+      width: state.sourceWidth,
+      height: state.sourceHeight,
+      known: state.known,
+      emptyText: state.bitmap ? null : state.emptyText,
+    }),
+    getValues: () => ({
+      pad_left: numberValue(node, "pad_left"),
+      pad_top: numberValue(node, "pad_top"),
+      pad_right: numberValue(node, "pad_right"),
+      pad_bottom: numberValue(node, "pad_bottom"),
+      canvas_multiple: numberValue(node, "canvas_multiple", 8),
+      target_megapixels: numberValue(node, "target_megapixels", 0),
+    }),
+    writePad: (side, value) => {
+      const input = node.inputs?.find((entry) => entry.name === `pad_${side}`);
+      if (input?.link != null) return;
+      const target = findWidget(node, `pad_${side}`);
+      if (!target) return;
+      target.value = value;
+      target.callback?.(value);
+    },
+    onGestureEnd: () => {
+      notifyAusbossChange();
+      node.setDirtyCanvas?.(true, true);
+    },
+  });
+  state.stage = stage;
+
+  const sides = ["left", "top", "right", "bottom"];
+  const unlinked = (side) => node.inputs?.find((entry) => entry.name === `pad_${side}`)?.link == null;
+  const syncReset = () => {
+    reset.style.display = sides.some((side) => unlinked(side) && numberValue(node, `pad_${side}`) > 0) ? "block" : "none";
+  };
+  reset.addEventListener("pointerdown", (event) => event.stopPropagation());
+  reset.addEventListener("click", () => {
+    for (const side of sides) {
+      if (!unlinked(side)) continue;
+      const target = findWidget(node, `pad_${side}`);
+      if (!target || Number(target.value) === 0) continue;
+      target.value = 0;
+      target.callback?.(0);
+    }
+    stage.draw();
+    syncReset();
+    notifyAusbossChange();
+    node.setDirtyCanvas?.(true, true);
+  });
+  state.syncReset = syncReset;
+
+  const refresh = () => {
+    const serial = ++state.loadSerial;
+    state.wired = isSourceWired(node);
+    // A wired picture only exists after a run: draw that run's thumbnail at
+    // the true source size, or a wireframe until the first run.
+    if (state.wired) {
+      const preview = state.wiredPreview;
+      state.bitmap = null;
+      state.emptyText = WIRED_EMPTY_TEXT;
+      state.known = !!preview;
+      if (!preview) {
+        stage.draw();
+        return;
+      }
+      state.sourceWidth = preview.width;
+      state.sourceHeight = preview.height;
+      const { width, height, ...reference } = preview;
+      const image = new Image();
+      image.onload = () => {
+        if (serial !== state.loadSerial) return;
+        state.bitmap = image;
+        stage.draw();
+      };
+      // Temp previews vanish on a server restart: keep the size, show the
+      // wireframe until the next run.
+      image.onerror = () => {};
+      image.src = api.apiURL(`/view?${new URLSearchParams({ ...reference, t: String(Date.now()) })}`);
+      stage.draw();
+      return;
+    }
+    state.shown = String(imageWidget.value ?? "");
+    const reference = parseImageReference(imageWidget.value);
+    if (!reference) {
+      state.bitmap = null;
+      state.known = false;
+      state.emptyText = "选择或上传图片";
+      stage.draw();
+      return;
+    }
+    const query = new URLSearchParams({ ...reference, t: String(Date.now()) });
+    const image = new Image();
+    image.onload = () => {
+      if (serial !== state.loadSerial) return;
+      state.bitmap = image;
+      state.known = true;
+      // It loaded, so it is on the server and belongs in the list: the
+      // frontend calls a picture that is not listed missing the next time
+      // it checks this node, as when a bypass comes off.
+      const listed = imageWidget.options?.values;
+      const unlisted = unlistedMedia(listed, state.shown);
+      if (unlisted) listed.push(unlisted);
+      state.sourceWidth = image.naturalWidth || DEFAULT_SOURCE.width;
+      state.sourceHeight = image.naturalHeight || DEFAULT_SOURCE.height;
+      suppressCoreImagePreview(node);
+      node.imageIndex = null;
+      stage.draw();
+    };
+    image.onerror = () => {
+      if (serial !== state.loadSerial) return;
+      state.bitmap = null;
+      state.known = false;
+      state.emptyText = "预览加载不了这张图";
+      stage.draw();
+    };
+    image.src = api.apiURL(`/view?${query}`);
+  };
+  state.refresh = refresh;
+  // A picture written into the widget with no callback (a MaskEditor save).
+  state.follow = () => { if (!state.wired && String(imageWidget.value ?? "") !== state.shown) refresh(); };
+
+  watchWidget(node, "image", refresh);
+  for (const name of ["pad_left", "pad_top", "pad_right", "pad_bottom", "canvas_multiple", "target_megapixels"]) {
+    watchWidget(node, name, () => { stage.draw(); syncReset(); });
+  }
+  syncReset();
+
+  // computeSize()[1] is no longer the stage's height — the panel takes the
+  // node's leftover space now, so the node's minimum is only the panel's
+  // floor. State the opening height from the same width-derived shape the
+  // stage used to pin itself to; a saved size still wins through onConfigure.
+  node.setSize?.([
+    Math.max(PAD_MIN_WIDTH + 20, node.size?.[0] || 0),
+    Math.max(node.size?.[1] || 0, DEFAULT_NODE_HEIGHT),
+  ]);
+  setTimeout(refresh, 0);
+  return state;
+}
+
+app.registerExtension({
+  name: "ausboss.load_image_pad.panel",
+  beforeRegisterNodeDef(nodeType, nodeData) {
+    if (nodeData?.name !== NODE_NAME) return;
+    hideInputsInDef(nodeData, ["pad_left", "pad_top", "pad_right", "pad_bottom"]);
+    chainCallback(nodeType.prototype, "onNodeCreated", function () {
+      buildPanel(this);
+    });
+    chainCallback(nodeType.prototype, "onConfigure", function () {
+      // Workflow restore lands widget values after creation: re-sync then.
+      // Never write widget values here — restored pads must survive a load.
+      queueMicrotask(() => {
+        const state = buildPanel(this);
+        if (state) {
+          suppressCoreImagePreview(this);
+          state.refresh?.();
+          state.syncReset?.();
+        }
+      });
+    });
+    chainCallback(nodeType.prototype, "onExecuted", function (message) {
+      if (isForeignRun()) return;
+      const preview = findStagePreview(message);
+      const state = preview ? buildPanel(this) : null;
+      if (!state) return;
+      state.wiredPreview = preview;
+      state.refresh?.();
+    });
+    chainCallback(nodeType.prototype, "onConnectionsChange", function () {
+      // Only a change of source (file <-> wire) needs a redraw from scratch.
+      const state = this.__ausbossLoadImagePad;
+      if (state && isSourceWired(this) !== state.wired) state.refresh?.();
+    });
+    chainCallback(nodeType.prototype, "onRemoved", function () {
+      this.__ausbossLoadImagePad?.stage?.dispose?.();
+      this.__ausbossLoadImagePad = null;
+    });
+  },
+});

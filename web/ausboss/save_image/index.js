@@ -1,0 +1,422 @@
+// Save Image 🆎: one compact card in place of the widget stack.
+//
+// Folder (with a Browse into ComfyUI's output folder), Filename, a live
+// Path preview, the name tags as small chips, the Format pills and the
+// Embed workflow pill. The saved picture below is js/input_preview's panel.
+// The standard widgets stay the source of truth and stay serialized in
+// their old order; the card only reads and writes them.
+// When the `filename` input is linked the name comes from upstream: the
+// field shows {{filename}} and the tags fold away, since an exact name is
+// never decorated.
+import { PANEL_LABELS } from "../shared/panel_controls.mjs";
+import { api } from "../../../../scripts/api.js";
+import { app } from "../../../../scripts/app.js";
+import { isForeignRun } from "../shared/prompt_scope.mjs";
+import { keepKeyInField } from "../shared/canvas_passthrough.mjs";
+import { BRAND, chainCallback, keepDomWidgetWidthAuto, notifyAusbossChange } from "../shared/index.mjs";
+import { installNameTokens, previewName as previewTokens } from "../shared/name_tokens.mjs";
+import { hideInputsInDef, hideWidget } from "../shared/widget_visibility.mjs";
+import { ensureCardCss } from "../shared/widget_card.mjs";
+import { holdNodeMinWidth, pinVuePanelHeight } from "../shared/panel_layout.mjs";
+import {
+  FORMAT_LABELS, TAGS, namingMode, previewFolder, previewName, tagsEnabled,
+} from "../shared/save_image_naming.mjs";
+
+const NODE_CLASS = "AUSBOSS_NODES_SaveImage";
+const WIDGET_NAME = "ausboss_save_image_card";
+const CSS_ID = "ausboss-save-image-css";
+const NODE_MIN_WIDTH = 340;
+const NAME_TITLE = "本地文件名；可以带子文件夹。下面的标签会追加到它后面。令牌可用：%date:yyyy-MM-dd%、%width%、%KSampler.seed%。";
+// Captions, fields, the two-line preview, chips, pills, the embed row and
+// the gaps between them; the frontend's wrapper insets ride on top.
+const CARD_HEIGHT = 288;
+const WRAPPER_INSET = 16;
+const HIDDEN = [
+  "filename_prefix", "format", "save_metadata", "exact_name", "on_existing",
+  "output_dir", "caption", "name_counter", "name_date", "name_time", "name_size", "name_batch", "autosave",
+];
+const FONT = `-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif`;
+const MONO = `ui-monospace,SFMono-Regular,Menlo,Consolas,monospace`;
+
+function ensureCss() {
+  ensureCardCss();
+  if (document.getElementById(CSS_ID)) return;
+  const style = document.createElement("style");
+  style.id = CSS_ID;
+  style.textContent = `
+.ausboss-save{box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;gap:6px;padding:8px 9px;overflow:hidden;border:1px solid rgba(0,180,170,.22);border-radius:8px;background:rgba(0,0,0,.28);font:12px/1.3 ${FONT};color:#c8dddd;pointer-events:none}
+.ausboss-save-cap{height:14px;flex:none;color:#5f7674;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;user-select:none}
+.ausboss-save-row{display:flex;align-items:center;gap:6px;flex:none;height:26px;pointer-events:auto}
+.ausboss-save .ausboss-card-seg.ausboss-save-format{height:36px;flex:none;pointer-events:auto}
+.ausboss-save .ausboss-save-format button{font-size:12px}
+.ausboss-save-row.linked .ausboss-card-text{color:#8ba3a1;font-family:${MONO}}
+.ausboss-save-tag{flex:none;color:${BRAND};font-size:11px;padding:0 4px;user-select:none}
+.ausboss-save-preview{flex:none;padding:6px 9px;border:1px solid #2a3437;border-radius:6px;background:#0b0f10;font-family:${MONO};overflow:hidden;pointer-events:auto}
+.ausboss-save-preview .folder{color:#5f7674;font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ausboss-save-preview .name{color:#d8ecea;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.ausboss-save-preview.saved .name{color:${BRAND}}
+.ausboss-save-chips{display:flex;flex-wrap:wrap;gap:5px;flex:none;pointer-events:auto}
+.ausboss-save-chip{height:22px;padding:0 9px;border:1px solid #3a4047;border-radius:6px;background:transparent;color:#8ba3a1;font:600 10.5px/1 ${FONT};cursor:pointer;white-space:nowrap}
+.ausboss-save-chip:hover{color:#fff;border-color:${BRAND}}
+.ausboss-save-chip.on{background:${BRAND};border-color:${BRAND};color:#04201d}
+.ausboss-save-chips.off .ausboss-save-chip{opacity:.4;pointer-events:none}
+.ausboss-save-embed-label{flex:none;color:#8ba3a1;font-size:11px;white-space:nowrap;user-select:none}
+.ausboss-save-half{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0}
+.ausboss-save-half .ausboss-card-seg{flex:1 1 0;min-width:0}
+.ausboss-save-switches{gap:12px}
+.ausboss-save-browse{position:fixed;z-index:10000;width:260px;max-height:320px;overflow:auto;padding:4px;border:1px solid #3a4047;border-radius:7px;background:#1c1f23;box-shadow:0 8px 28px rgba(0,0,0,.5);font:12px/1.3 ${FONT};color:#d8ecea}
+.ausboss-save-browse-head{padding:5px 8px 6px;border-bottom:1px solid #2c3238;color:#78908e;font:10px/1 ${FONT};letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ausboss-save-browse button{display:block;width:100%;padding:6px 8px;border:none;border-radius:5px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.ausboss-save-browse button:hover{background:#2a3037}
+.ausboss-save-browse button.use{color:${BRAND};font-weight:600}
+`;
+  document.head.append(style);
+}
+
+const el = (tag, className = "", text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+
+function widget(node, name) {
+  return node.widgets?.find((item) => item.name === name) ?? null;
+}
+
+function value(node, name, fallback) {
+  const target = widget(node, name);
+  return target ? target.value : fallback;
+}
+
+function filenameLinked(node) {
+  return Boolean(node.inputs?.some((input) => input?.name === "filename" && input.link !== null && input.link !== undefined));
+}
+
+function setValue(node, name, next) {
+  const target = widget(node, name);
+  if (!target || target.value === next) return false;
+  target.value = next;
+  target.callback?.(next, app.canvas, node);
+  node.graph?.setDirtyCanvas?.(true, true);
+  return true;
+}
+
+function readValues(node) {
+  const values = {};
+  for (const name of HIDDEN) values[name] = value(node, name, undefined);
+  values.filenameLinked = filenameLinked(node);
+  return values;
+}
+
+// ---------- the Browse popup: subfolders of ComfyUI's output folder ----------
+
+let openPopup = null;
+function closeBrowse() {
+  openPopup?.abort.abort();
+  openPopup?.element.remove();
+  openPopup = null;
+}
+
+async function listFolders(path) {
+  const response = await api.fetchApi(`/ausboss/save_image/folders?path=${encodeURIComponent(path)}`);
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || "列不出文件夹。");
+  return response.json();
+}
+
+async function openBrowse(state, anchor) {
+  closeBrowse();
+  const popup = el("div", "ausboss-save-browse");
+  const rect = anchor.getBoundingClientRect();
+  popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 270))}px`;
+  popup.style.top = `${rect.bottom + 4}px`;
+  document.body.append(popup);
+  // The dismiss listeners live and die with this popup, so a second Browse
+  // never leaves an old one behind to close the new popup.
+  const abort = new AbortController();
+  openPopup = { element: popup, anchor, abort };
+  const current = String(value(state.node, "output_dir", "")).trim().replace(/\\/g, "/");
+  let path = /^([A-Za-z]:[\\/]|\/|~)/.test(current) ? "" : current.replace(/^\/+|\/+$/g, "");
+  const render = async () => {
+    popup.textContent = "";
+    popup.append(el("div", "ausboss-save-browse-head", `ComfyUI/output/${path}`));
+    let listing;
+    try {
+      listing = await listFolders(path);
+    } catch (error) {
+      popup.append(el("div", "ausboss-save-browse-head", error.message));
+      return;
+    }
+    path = listing.path;
+    const use = el("button", "use", path ? `Use “${path}”` : "使用输出文件夹");
+    use.addEventListener("click", () => { state.savedPath = null; setValue(state.node, "output_dir", path); state.refresh(); notifyAusbossChange(); closeBrowse(); });
+    popup.append(use);
+    if (path) {
+      const up = el("button", "", "↑ 上一层");
+      up.addEventListener("click", () => { path = path.split("/").slice(0, -1).join("/"); render(); });
+      popup.append(up);
+    }
+    for (const folder of listing.folders) {
+      const button = el("button", "", `📁 ${folder}`);
+      button.addEventListener("click", () => { path = path ? `${path}/${folder}` : folder; render(); });
+      popup.append(button);
+    }
+    if (!listing.folders.length) popup.append(el("div", "ausboss-save-browse-head", "这里没有子文件夹"));
+  };
+  window.addEventListener("pointerdown", (event) => {
+    if (popup.contains(event.target) || event.target === anchor) return;
+    closeBrowse();
+  }, { capture: true, signal: abort.signal });
+  window.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    closeBrowse();
+  }, { capture: true, signal: abort.signal });
+  await render();
+}
+
+// ---------- the card ----------
+
+function textField(state, name, placeholder, title) {
+  const input = el("input", "ausboss-card-text");
+  input.type = "text"; input.placeholder = placeholder; input.title = title; input.spellcheck = false;
+  // A field may stand in for another widget (the name field shows a legacy
+  // exact name); dataset.target names the widget it currently edits.
+  const target = () => input.dataset.target || name;
+  const commit = () => {
+    if (input.disabled) return;
+    if (setValue(state.node, target(), input.value.trim())) { state.savedPath = null; notifyAusbossChange(); }
+    state.refresh();
+  };
+  input.addEventListener("change", commit);
+  input.addEventListener("blur", commit);
+  input.addEventListener("keydown", (event) => {
+    keepKeyInField(event);
+    if (event.key === "Enter") input.blur();
+    if (event.key === "Escape") { input.value = String(value(state.node, target(), "")); input.blur(); }
+  });
+  return input;
+}
+
+function buildCard(node) {
+  ensureCss();
+  const root = el("div", "ausboss-save");
+  const state = { node, root, savedPath: null, alive: true };
+  node.__ausbossSaveImage = state;
+  for (const name of HIDDEN) {
+    const target = widget(node, name);
+    if (!target) continue;
+    hideWidget(target);
+    // The legacy caption is a multiline DOM widget: collapsing its layout is
+    // not enough, its textarea has to go too. Its value still saves.
+    if (target.element) target.element.style.display = "none";
+  }
+
+  // Folder
+  root.append(el("div", "ausboss-save-cap", "Folder"));
+  const folderRow = el("div", "ausboss-save-row");
+  const folder = textField(state, "output_dir", "ComfyUI/output", "要保存到 ComfyUI 输出文件夹下的子文件夹，比如 sets/portraits。留空就存到输出文件夹本身；保存图像不会写到它之外。");
+  const browse = el("button", "ausboss-card-btn", "Browse");
+  browse.title = "选一个 ComfyUI 输出文件夹下的子文件夹";
+  browse.addEventListener("click", () => {
+    if (openPopup?.anchor === browse) closeBrowse();
+    else openBrowse(state, browse);
+  });
+  folderRow.append(folder, browse);
+  root.append(folderRow);
+
+  // Filename
+  root.append(el("div", "ausboss-save-cap", "Filename"));
+  const nameRow = el("div", "ausboss-save-row");
+  const nameField = textField(state, "filename_prefix", "image", NAME_TITLE);
+  const nameTag = el("span", "ausboss-save-tag", "");
+  nameRow.append(nameField, nameTag);
+  root.append(nameRow);
+
+  // Path preview
+  root.append(el("div", "ausboss-save-cap", "路径预览"));
+  const preview = el("div", "ausboss-save-preview");
+  const previewFolderLine = el("div", "folder");
+  const previewNameLine = el("div", "name");
+  preview.append(previewFolderLine, previewNameLine);
+  preview.title = "这次保存会生成的名字；跑完之后，是它实际写出的第一个文件。";
+  root.append(preview);
+
+  // Tags
+  const chips = el("div", "ausboss-save-chips");
+  const chipButtons = new Map();
+  for (const tag of TAGS) {
+    const chip = el("button", "ausboss-save-chip", tag.label);
+    chip.type = "button"; chip.title = tag.title;
+    chip.addEventListener("click", () => {
+      if (setValue(node, tag.key, !Boolean(value(node, tag.key, false)))) { state.savedPath = null; notifyAusbossChange(); }
+      state.refresh();
+    });
+    chips.append(chip); chipButtons.set(tag.key, chip);
+  }
+  root.append(chips);
+
+  // Format: the pill alone, tall enough to read as the one big choice on
+  // the card - the three names say what it is.
+  const seg = el("div", "ausboss-card-seg ausboss-save-format");
+  const formatButtons = new Map();
+  const formatTitles = {
+    png: "无损、兼容性最好。保留 alpha，还能把工作流嵌进图里，拖回 ComfyUI 即可。",
+    "webp lossless": "无损，通常比 PNG 小。保留 alpha；工作流放在 EXIF 里。",
+    "jxl lossless": "无损且体积小。需要 ComfyUI 的 python 里装有 pillow-jxl-plugin；浏览器和节点预览的支持有限。",
+  };
+  for (const [key, label] of Object.entries(FORMAT_LABELS)) {
+    const button = el("button", "", label);
+    button.type = "button"; button.title = formatTitles[key] ?? key;
+    button.addEventListener("click", () => { if (setValue(node, "format", key)) { state.savedPath = null; notifyAusbossChange(); } state.refresh(); });
+    seg.append(button); formatButtons.set(key, button);
+  }
+  root.append(seg);
+
+  // Embed workflow: a no | yes pill, the pack's boolean.
+  const embedRow = el("div", "ausboss-save-row");
+  const embedSeg = el("div", "ausboss-card-seg ausboss-card-bool");
+  embedSeg.setAttribute("role", "radiogroup");
+  const embedButtons = new Map();
+  const embedTitle = "嵌入：把提示词和工作流存进图里，可拖回 ComfyUI。关闭：写出干净的图，方便分享或做数据集。";
+  for (const [on, text] of [[false, PANEL_LABELS.off], [true, PANEL_LABELS.on]]) {
+    const button = el("button", "", text);
+    button.type = "button"; button.title = embedTitle;
+    button.addEventListener("click", () => { if (setValue(node, "save_metadata", on)) notifyAusbossChange(); state.refresh(); });
+    embedSeg.append(button); embedButtons.set(on, button);
+  }
+  const embedHalf = el("div", "ausboss-save-half");
+  embedHalf.append(el("span", "ausboss-save-embed-label", PANEL_LABELS.embed), embedSeg);
+  embedRow.classList.add("ausboss-save-switches");
+  embedRow.append(embedHalf);
+  root.append(embedRow);
+
+  // Auto save: off shows the pictures without saving them; the Save button
+  // over the picture (js/input_preview) then keeps the ones that are wanted.
+  // It shares the Embed workflow row, so the card is no taller than before.
+  const autoHalf = el("div", "ausboss-save-half");
+  const autoSeg = el("div", "ausboss-card-seg ausboss-card-bool");
+  autoSeg.setAttribute("role", "radiogroup");
+  const autoButtons = new Map();
+  const autoTitle = "开：每次运行都保存图片。关：图片只在这里显示，图上的保存按钮能留下你想要的。";
+  for (const [on, text] of [[false, PANEL_LABELS.off], [true, PANEL_LABELS.on]]) {
+    const button = el("button", "", text);
+    button.type = "button"; button.title = autoTitle;
+    button.addEventListener("click", () => { if (setValue(node, "autosave", on)) { state.savedPath = null; notifyAusbossChange(); } state.refresh(); });
+    autoSeg.append(button); autoButtons.set(on, button);
+  }
+  autoHalf.append(el("span", "ausboss-save-embed-label", "自动保存"), autoSeg);
+  embedRow.append(autoHalf);
+
+  root.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("button,input,select")) event.stopPropagation();
+  });
+
+  state.refresh = () => {
+    if (!state.alive) return;
+    const values = readValues(node);
+    const mode = namingMode({ filenameLinked: values.filenameLinked, exactName: values.exact_name });
+    if (document.activeElement !== folder) folder.value = String(values.output_dir ?? "");
+    nameRow.classList.toggle("linked", mode === "linked");
+    nameField.disabled = mode === "linked";
+    if (mode === "linked") {
+      nameField.value = "{{filename}}"; nameTag.textContent = "linked";
+      nameField.title = "名字来自文件名输入框。";
+    } else if (mode === "exact") {
+      if (document.activeElement !== nameField) nameField.value = String(values.exact_name ?? "");
+      nameTag.textContent = "exact";
+      nameField.title = "旧版 exact_name：完全按这个名字保存，不加标签。清空它就能在这里拼名字。";
+    } else {
+      if (document.activeElement !== nameField) nameField.value = String(values.filename_prefix ?? "");
+      nameTag.textContent = "";
+      nameField.title = NAME_TITLE;
+    }
+    // An exact-mode edit writes the exact name; a local-mode edit the prefix.
+    nameField.dataset.target = mode === "exact" ? "exact_name" : "filename_prefix";
+    if (state.savedPath) {
+      const slash = state.savedPath.lastIndexOf("/");
+      previewFolderLine.textContent = slash >= 0 ? (state.savedPath.startsWith("/") ? state.savedPath.slice(0, slash + 1) : `ComfyUI/output/${state.savedPath.slice(0, slash + 1)}`) : "ComfyUI/output/";
+      previewNameLine.textContent = state.savedPath.slice(slash + 1);
+      preview.classList.add("saved");
+    } else {
+      // Name tokens show as what they will be: %date:yyyy-MM-dd% as today's date.
+      const shown = { ...values, filename_prefix: previewTokens(values.filename_prefix, app), exact_name: previewTokens(values.exact_name, app) };
+      previewFolderLine.textContent = previewFolder(shown);
+      previewNameLine.textContent = previewName(shown);
+      preview.classList.remove("saved");
+    }
+    chips.classList.toggle("off", !tagsEnabled(values));
+    for (const [key, chip] of chipButtons) chip.classList.toggle("on", Boolean(values[key]));
+    for (const [key, button] of formatButtons) button.classList.toggle("on", values.format === key);
+    const embed = Boolean(values.save_metadata);
+    for (const [on, button] of embedButtons) {
+      button.classList.toggle("on", on === embed);
+      button.setAttribute("aria-checked", String(on === embed));
+    }
+    const auto = values.autosave !== false;
+    for (const [on, button] of autoButtons) {
+      button.classList.toggle("on", on === auto);
+      button.setAttribute("aria-checked", String(on === auto));
+    }
+  };
+
+  const domWidget = node.addDOMWidget(WIDGET_NAME, WIDGET_NAME, root, {
+    serialize: false,
+    hideOnZoom: false,
+    getMinHeight: () => CARD_HEIGHT + WRAPPER_INSET,
+  });
+  keepDomWidgetWidthAuto(domWidget);
+  // Not saved with the workflow either: options.serialize only keeps it out
+  // of the prompt, and saved values come back by position.
+  domWidget.serialize = false;
+  // A constant-height card, pinned on purpose (tests/panel_guards.test.mjs,
+  // fixedByDesign): fields and pills, not a stage that follows the node.
+  domWidget.computeSize = (width) => [Math.max(NODE_MIN_WIDTH, Number(width || node.size?.[0] || NODE_MIN_WIDTH)), CARD_HEIGHT + WRAPPER_INSET];
+  // Pinned in Nodes 2.0 as well: the saved picture below takes the node's
+  // spare height there too.
+  pinVuePanelHeight(domWidget);
+  domWidget.options.minNodeSize = [NODE_MIN_WIDTH, 120];
+  // A pinned card is skipped by the frontend's width rule, so the card's
+  // number becomes the node's floor here (panel_layout.mjs).
+  holdNodeMinWidth(domWidget, NODE_MIN_WIDTH);
+  // Ahead of the legacy caption textarea, which stays hidden underneath.
+  const index = node.widgets.indexOf(domWidget);
+  const firstDom = node.widgets.findIndex((item) => item !== domWidget && item.element);
+  if (index >= 0 && firstDom >= 0 && firstDom < index) {
+    node.widgets.splice(index, 1); node.widgets.splice(firstDom, 0, domWidget);
+  }
+
+  for (const name of HIDDEN) {
+    const target = widget(node, name);
+    if (target) chainCallback(target, "callback", () => state.refresh());
+  }
+  chainCallback(node, "onConfigure", () => queueMicrotask(() => {
+    for (const name of HIDDEN) { const target = widget(node, name); if (target) { hideWidget(target); if (target.element) target.element.style.display = "none"; } }
+    state.savedPath = null; state.refresh();
+  }));
+  chainCallback(node, "onConnectionsChange", () => queueMicrotask(() => state.refresh()));
+  chainCallback(node, "onExecuted", (output) => {
+    if (isForeignRun()) return;
+    const saved = output?.ausboss_saved_path?.[0];
+    state.savedPath = typeof saved === "string" && saved ? saved : null;
+    state.refresh();
+  });
+  chainCallback(node, "onRemoved", () => { state.alive = false; closeBrowse(); });
+  state.refresh();
+  node.setSize?.([Math.max(node.size?.[0] || 0, NODE_MIN_WIDTH), node.computeSize?.()[1] || CARD_HEIGHT]);
+  return state;
+}
+
+app.registerExtension({
+  name: "ausboss.save_image",
+  beforeRegisterNodeDef(nodeType, nodeData) {
+    if (nodeData?.name !== NODE_CLASS) return;
+    hideInputsInDef(nodeData, HIDDEN);
+    chainCallback(nodeType.prototype, "onNodeCreated", function () {
+      if (this.__ausbossSaveImage) return;
+      buildCard(this);
+      // %date:yyyy-MM-dd% and %Node.setting% in the name (js/shared/name_tokens.mjs).
+      installNameTokens(this, ["filename_prefix", "exact_name"], app);
+    });
+  },
+});

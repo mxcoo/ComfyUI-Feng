@@ -1,0 +1,89 @@
+{
+ "NODES": {
+  "AUSBOSS_NODES_Krea2OutpaintModelPatch": {
+   "name": "Krea 2 扩图模型补丁 🆎",
+   "description": "告诉 Krea 2 参考图应该落在画布上的哪个位置。参考 latent 默认不带位置信息，模型只会把它当成一个松散的风格提示；这个节点按 stitcher 报告的矩形把它们注册进目标网格，扩图才会接着原图往下画，而不是把原图重新编一遍。放在所有 LoRA 加载器之后、采样器之前。",
+   "outputs": [
+    "模型"
+   ],
+   "tooltips": {
+    "model": "一个 Krea 2 模型。补丁要打最后，放在所有 LoRA 之后。",
+    "stitcher": "来自 加载图像 + 扩边 🆎 或 图像裁剪 + 旋转 + 扩边 🆎 节点，提供原图在画布上占据的矩形。不带矩形的 stitcher 会把参考图铺满整帧。",
+    "kv_cache": "参考图的 key 和 value 每次运行只算一次，而不是每一步都重算。采样过程中参考图不会变，所以这是白拿的加速；只有排查问题、想排除缓存因素时才关掉它。",
+    "placement": "参考 token 注册到哪里。“source rectangle” 把未扩边的原图钉在 stitcher 报告的矩形上——这是 Registered Outpaint LoRA 的约定，每轮只扩一条轴。“whole canvas” 把参考图铺满整帧——用于 AnyPaint LoRA，此时参考图本身就是扩边后的画布，采样器的噪波遮罩保住已知像素，所以四条边可以一次全扩。"
+   }
+  },
+  "AUSBOSS_NODES_LaMaInpaint": {
+   "name": "LaMa 局部重绘 🆎",
+   "description": "用 TorchScript 格式的 LaMa 模型去掉遮罩区域的内容，遮罩以外的像素原样保留。模型从 ComfyUI/models/lama 读取，节点不会自行下载任何模型。",
+   "outputs": [
+    "图像"
+   ],
+   "tooltips": {
+    "image": "待局部重绘的 BHWC 图像或视频帧。",
+    "mask": "白色区域会被替换。单张遮罩可以广播到整个图像批次。",
+    "model": "从 ComfyUI/models/lama 读取的 LaMa 模型。只有已知的 big-lama.pt 副本能打开，换成其它文件会直接中断运行。",
+    "preview": "在节点面板上显示本节点的结果。关闭后不再往 ComfyUI 的 temp 目录写预览文件。"
+   }
+  },
+  "SimpleWatermarkRemover": {
+   "name": "简易水印去除器（AusBoss 兼容）",
+   "description": "兼容别名，供类名存成 SimpleWatermarkRemover 的旧工作流继续使用。新工作流请改用 LaMa 局部重绘 🆎。",
+   "outputs": [
+    "图像"
+   ],
+   "tooltips": {
+    "image": "待局部重绘的 BHWC 图像或视频帧。",
+    "mask": "白色区域会被替换。",
+    "method": "旧版引擎选择器。"
+   }
+  },
+  "AUSBOSS_NODES_LayoutBoxes": {
+   "name": "布局框 🆎",
+   "description": "在画布上画框，并指定每个框里放什么：一个物体，或要写进图里的文字。把 elements 接到 MOSS-Image Layout Prompt。在画布上拖动可以画出新框；拖动框本身是移动，拖四角是改大小，拖框上方的圆形手柄是旋转。经典界面和 Nodes 2.0 都能用，输出与 ComfyUI 自带的 Create Bounding Boxes 一致，所以可以顶替那个节点。background 接一张图片，它会显示在框的下层，并决定画布尺寸。遮罩输出在每个框内都是白色：用它只改动图中这些位置，例如招牌上的字。",
+   "outputs": [
+    "预览",
+    "边界框",
+    "元素",
+    "遮罩"
+   ],
+   "tooltips": {
+    "background": "用来画框的底图（可选）。它显示在框的下层，它的尺寸会成为画布尺寸。",
+    "bboxes": "起始的框（可选）：包围盒、提示词元素，或二者之一的 JSON 文本。连线送来新框时会铺满画布；之后你在画布上做的改动会一直保留，直到连线上送来的框发生变化。",
+    "width": "画布宽度，单位为像素，也就是你要生成的图片宽度。从 Latent 尺寸 🆎 接入，可让两者保持一致。",
+    "height": "画布高度，单位为像素，也就是你要生成的图片高度。从 Latent 尺寸 🆎 接入，可让两者保持一致。",
+    "layout": "在节点上画好的框，以文本形式存在这里：每个框的位置（按画布的比例）、旋转角度、类型、里面的文字和颜色。"
+   }
+  },
+  "AUSBOSS_NODES_Text": {
+   "name": "文本 🆎",
+   "description": "一个独立的多行文本框，走单独的 STRING 连线。把同一条提示词送给多个编码器，或把说明文字放在用它的节点旁边，不用每处都重新输入。输出就是你输入的内容，一字不改。",
+   "outputs": [
+    "文本"
+   ],
+   "tooltips": {
+    "text": "要输出的文本，按输入原样传递。"
+   }
+  },
+  "AUSBOSS_NODES_Integer": {
+   "name": "整数 🆎",
+   "description": "一个独立的 INT 值，走单独的连线。在一处设好步数、尺寸或数量，喂给所有需要同一个数字的节点。",
+   "outputs": [
+    "整数"
+   ],
+   "tooltips": {
+    "value": "要输出的整数。"
+   }
+  },
+  "AUSBOSS_NODES_Float": {
+   "name": "浮点数 🆎",
+   "description": "一个独立的 FLOAT 值，走单独的连线。在多个节点之间共用同一个强度、缩放或 CFG，只需改一处。",
+   "outputs": [
+    "浮点数"
+   ],
+   "tooltips": {
+    "value": "要输出的浮点数。"
+   }
+  }
+ }
+}

@@ -1,0 +1,511 @@
+import { app } from "../../../../scripts/app.js";
+import { api } from "../../../../scripts/api.js";
+import { AUSBOSS_JS_VERSION, BRAND, BRAND_BODY, chainCallback } from "../shared/index.mjs";
+import { nodeByExecutionId } from "../shared/graph_ids.mjs";
+import { isOwnRun, ownRuns } from "../shared/prompt_scope.mjs";
+import {
+  advanceExecution,
+  applyStatus,
+  badgeFor,
+  clearStatuses,
+  composeTitle,
+  createRunState,
+  createStatusState,
+  stripQueuePrefix,
+} from "../shared/chrome.mjs";
+
+// Pack-wide browser-chrome status: favicon + tab-title queue status, live
+// per-node status badges, and optional per-node runtime badges. Pure
+// decision logic lives in js/shared/chrome.mjs; this file only wires DOM,
+// api events, and drawing.
+
+const FAVICON_SETTING = "AusBoss.Chrome.FaviconStatus";
+const RUNTIME_SETTING = "AusBoss.Chrome.NodeRuntime";
+const RUNTIME_KEY = "ausbossRuntimeSeconds";
+const STATUS_SETTING = "AusBoss.Chrome.NodeStatus";
+const STATUS_KEY = "ausbossNodeStatus";
+const STATUS_EVENT = "ausboss-node-status";
+
+// ---------------------------------------------------------------------------
+// Favicon + tab title
+// ---------------------------------------------------------------------------
+
+const favicon = {
+  enabled: false,
+  abort: null,
+  icons: null, // { idle, active } data URIs, drawn once per enable
+  link: null, // the <link rel="icon"> we manage
+  createdLink: false, // we added it, so disable removes it
+  originalHref: null,
+  executing: false,
+  queueRemaining: 0,
+};
+
+function roundedRectPath(ctx, x, y, width, height, radius) {
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, width, height, radius);
+    return;
+  }
+  const right = x + width;
+  const bottom = y + height;
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(right, y, right, bottom, radius);
+  ctx.arcTo(right, bottom, x, bottom, radius);
+  ctx.arcTo(x, bottom, x, y, radius);
+  ctx.arcTo(x, y, right, y, radius);
+  ctx.closePath();
+}
+
+// The api's "executing" detail is the running node id (or null when the
+// prompt finishes); some frontend builds wrap it in an object instead.
+function executingNodeId(detail) {
+  if (detail && typeof detail === "object") return detail.display_node ?? detail.node ?? null;
+  return detail ?? null;
+}
+
+// Both icons are drawn at runtime on a scratch canvas — no image assets.
+// Idle: a filled rounded square in the brand teal. Active: the same square
+// with a bright dot punched into the top-right corner.
+function drawIcon(active) {
+  try {
+    const size = 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    roundedRectPath(ctx, 4, 4, size - 8, size - 8, 14);
+    ctx.fillStyle = BRAND;
+    ctx.fill();
+    if (active) {
+      // Dark halo first so the dot reads at 16px against the teal.
+      ctx.beginPath();
+      ctx.arc(46, 18, 15, 0, Math.PI * 2);
+      ctx.fillStyle = BRAND_BODY;
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(46, 18, 10, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffd166";
+      ctx.fill();
+    }
+    return canvas.toDataURL("image/png");
+  } catch {
+    return null;
+  }
+}
+
+function applyFavicon(href) {
+  if (!href) return;
+  if (!favicon.link || !favicon.link.isConnected) {
+    let link = document.querySelector("link[rel~='icon']");
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head?.appendChild(link);
+      favicon.createdLink = true;
+      favicon.originalHref = null;
+    } else if (favicon.link !== link) {
+      favicon.createdLink = false;
+      favicon.originalHref = link.getAttribute("href");
+    }
+    favicon.link = link;
+  }
+  if (favicon.link.getAttribute("href") !== href) favicon.link.setAttribute("href", href);
+}
+
+function restoreFavicon() {
+  const link = favicon.link;
+  favicon.link = null;
+  if (!link || !link.isConnected) return;
+  if (favicon.createdLink) link.remove();
+  else if (favicon.originalHref != null) link.setAttribute("href", favicon.originalHref);
+  else link.removeAttribute("href");
+  favicon.createdLink = false;
+  favicon.originalHref = null;
+}
+
+function renderChrome() {
+  try {
+    applyFavicon(favicon.executing ? favicon.icons?.active : favicon.icons?.idle);
+    // Recompose from the live title (never a stale snapshot) so a rename by
+    // the frontend survives; composeTitle strips our own prefix first.
+    const next = composeTitle(document.title, favicon.queueRemaining);
+    if (document.title !== next) document.title = next;
+  } catch {
+    /* Favicon status must never break the app. */
+  }
+}
+
+function enableFavicon() {
+  if (favicon.abort) return;
+  favicon.abort = new AbortController();
+  const signal = favicon.abort.signal;
+  favicon.icons = { idle: drawIcon(false), active: drawIcon(true) };
+  const busy = (executing) => () => {
+    favicon.executing = executing;
+    renderChrome();
+  };
+  api.addEventListener(
+    "status",
+    (event) => {
+      const n = Number(event?.detail?.exec_info?.queue_remaining);
+      favicon.queueRemaining = Number.isFinite(n) ? n : 0;
+      renderChrome();
+    },
+    { signal },
+  );
+  api.addEventListener("execution_start", busy(true), { signal });
+  api.addEventListener(
+    "executing",
+    (event) => busy(executingNodeId(event?.detail) != null)(),
+    { signal },
+  );
+  api.addEventListener("execution_success", busy(false), { signal });
+  api.addEventListener("execution_error", busy(false), { signal });
+  api.addEventListener("execution_interrupted", busy(false), { signal });
+  renderChrome();
+}
+
+function disableFavicon() {
+  favicon.abort?.abort();
+  favicon.abort = null;
+  favicon.executing = false;
+  favicon.queueRemaining = 0;
+  try {
+    document.title = stripQueuePrefix(document.title);
+    restoreFavicon();
+  } catch {
+    /* Restoring best-effort; never throw. */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Per-node runtime badges
+// ---------------------------------------------------------------------------
+
+const runtime = {
+  enabled: false,
+  abort: null,
+  state: createRunState(),
+  kept: null,
+};
+
+function graphNodes() {
+  return app.graph?._nodes || app.graph?.nodes || [];
+}
+
+// Ids arrive over the wire as ComfyUI execution ids: a plain number at the
+// top level, colon-joined inside a subgraph ("12:3"). Number("12:3") is NaN
+// and the root graph has no node under that string, so both badges used to
+// go missing entirely for any node inside a subgraph.
+function nodeById(id) {
+  return nodeByExecutionId(app.rootGraph ?? app.graph, id);
+}
+
+function clearBadges() {
+  // Assign undefined, never delete — deleting node properties breaks
+  // reactivity under the Nodes 2.0 renderer.
+  for (const node of graphNodes()) {
+    if (node[RUNTIME_KEY] !== undefined) node[RUNTIME_KEY] = undefined;
+  }
+}
+
+function stampUpdates(updates) {
+  for (const { id, seconds } of updates) {
+    const node = nodeById(id);
+    if (node) node[RUNTIME_KEY] = seconds;
+  }
+  if (updates.length) app.graph?.setDirtyCanvas?.(true, false);
+}
+
+// The badges a run cleared when it started, kept until it is clear that the
+// run is one of the workflow's: a node's own run (Mask by Touch looking at
+// its picture) is only known as one once the queue has answered.
+function keepBadges(promptId) {
+  const badges = [];
+  for (const node of graphNodes()) {
+    if (node[RUNTIME_KEY] !== undefined) badges.push([node, node[RUNTIME_KEY]]);
+  }
+  runtime.kept = { promptId: promptId ? String(promptId) : null, badges };
+}
+
+function enableRuntime() {
+  if (runtime.abort) return;
+  runtime.abort = new AbortController();
+  const signal = runtime.abort.signal;
+  // A run a node starts for itself leaves the last run's badges alone.
+  const workflowRun = (handler) => (event) => {
+    const detail = event?.detail;
+    if (!isOwnRun(detail && typeof detail === "object" ? detail.prompt_id : null)) handler(event);
+  };
+  const closeRun = workflowRun(() => stampUpdates(advanceExecution(runtime.state, null, performance.now())));
+  api.addEventListener(
+    "execution_start",
+    workflowRun((event) => {
+      keepBadges(event?.detail?.prompt_id);
+      runtime.state = createRunState();
+      clearBadges();
+    }),
+    { signal },
+  );
+  api.addEventListener(
+    "executing",
+    workflowRun((event) =>
+      stampUpdates(advanceExecution(runtime.state, executingNodeId(event?.detail), performance.now()))),
+    { signal },
+  );
+  api.addEventListener("execution_success", closeRun, { signal });
+  api.addEventListener("execution_error", closeRun, { signal });
+  api.addEventListener("execution_interrupted", closeRun, { signal });
+  const stop = ownRuns.subscribe((promptId) => {
+    const kept = runtime.kept;
+    if (!kept || kept.promptId !== promptId) return;
+    runtime.kept = null;
+    runtime.state = createRunState();
+    clearBadges();
+    for (const [node, seconds] of kept.badges) node[RUNTIME_KEY] = seconds;
+    app.graph?.setDirtyCanvas?.(true, false);
+  });
+  signal.addEventListener("abort", stop);
+}
+
+function disableRuntime() {
+  runtime.abort?.abort();
+  runtime.abort = null;
+  runtime.state = createRunState();
+  runtime.kept = null;
+  try {
+    clearBadges();
+    app.graph?.setDirtyCanvas?.(true, false);
+  } catch {
+    /* Never throw from a toggle. */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Live per-node status badges
+// ---------------------------------------------------------------------------
+
+const status = {
+  enabled: false,
+  abort: null,
+  state: createStatusState(),
+};
+
+// Retire the statuses this run is done with, keeping the node still
+// executing (when one is passed) so its badge survives until it moves on.
+function retireStatuses(keepId) {
+  const cleared = clearStatuses(status.state, keepId);
+  for (const id of cleared) {
+    const node = nodeById(id);
+    if (node && node[STATUS_KEY] !== undefined) node[STATUS_KEY] = undefined;
+  }
+  if (cleared.length) app.graph?.setDirtyCanvas?.(true, false);
+}
+
+function enableStatus() {
+  if (status.abort) return;
+  status.abort = new AbortController();
+  const signal = status.abort.signal;
+  api.addEventListener(
+    STATUS_EVENT,
+    (event) => {
+      const id = applyStatus(status.state, event?.detail);
+      if (id === null) return;
+      const node = nodeById(id);
+      // undefined when the node retracted its status — assign, never delete.
+      if (node) node[STATUS_KEY] = status.state.entries.get(id);
+      app.graph?.setDirtyCanvas?.(true, false);
+    },
+    { signal },
+  );
+  // A status describes what a node is doing right now, so the run moving on,
+  // ending, failing, or being stopped all retire it.
+  api.addEventListener(
+    "executing",
+    (event) => retireStatuses(executingNodeId(event?.detail)),
+    { signal },
+  );
+  const retireAll = () => retireStatuses();
+  api.addEventListener("execution_start", retireAll, { signal });
+  api.addEventListener("execution_success", retireAll, { signal });
+  api.addEventListener("execution_error", retireAll, { signal });
+  api.addEventListener("execution_interrupted", retireAll, { signal });
+}
+
+function disableStatus() {
+  status.abort?.abort();
+  status.abort = null;
+  try {
+    retireStatuses();
+  } catch {
+    /* Never throw from a toggle. */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Badge drawing
+// ---------------------------------------------------------------------------
+
+function drawNodeBadge(node, ctx) {
+  try {
+    if (node?.flags?.collapsed) return;
+    // Zoomed way out the text is unreadable anyway — skip the work.
+    if ((app.canvas?.ds?.scale ?? 1) < 0.5) return;
+    const badge = badgeFor(
+      status.enabled ? node?.[STATUS_KEY] : null,
+      runtime.enabled ? node?.[RUNTIME_KEY] : undefined,
+    );
+    if (!badge) return;
+    const titleHeight = globalThis.LiteGraph?.NODE_TITLE_HEIGHT ?? 30;
+    ctx.save();
+    ctx.font = "10px monospace";
+    const padX = 5;
+    const height = 15;
+    const width = Math.ceil(ctx.measureText(badge.text).width) + padX * 2;
+    // Top-left, floating just above the title bar so it never covers the
+    // node title or its widgets. The right side belongs to the frontend's
+    // own node-source badge, which sits at the same height.
+    const x = 0;
+    const y = -titleHeight - height - 4;
+    roundedRectPath(ctx, x, y, width, height, 4);
+    ctx.fillStyle = "rgba(8, 20, 19, 0.85)";
+    ctx.fill();
+    if (badge.progress !== null) {
+      // Proportional fill inside the badge's own outline — clipped to the
+      // rounded path that is still current after the fill above.
+      ctx.save();
+      ctx.clip();
+      ctx.fillStyle = "rgba(0, 180, 170, 0.45)";
+      ctx.fillRect(x, y, width * badge.progress, height);
+      ctx.restore();
+    }
+    ctx.strokeStyle = BRAND;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = "#d8f5f3";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(badge.text, x + padX, y + height / 2 + 0.5);
+    ctx.restore();
+  } catch {
+    /* Drawing must never break the canvas loop. */
+  }
+}
+
+let drawHookInstalled = false;
+
+function installDrawHook() {
+  if (drawHookInstalled) return;
+  const proto = globalThis.LiteGraph?.LGraphNode?.prototype;
+  if (!proto) return;
+  drawHookInstalled = true;
+  chainCallback(proto, "onDrawForeground", function (ctx) {
+    drawNodeBadge(this, ctx);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Registration
+// ---------------------------------------------------------------------------
+
+app.registerExtension({
+  name: "AusBoss.Chrome",
+  // Shown on Settings > About; the frontend's aboutPanelStore flat-maps each
+  // extension's aboutPageBadges ({ label, url, icon }) after the core rows.
+  aboutPageBadges: [
+    {
+      label: `ComfyUI-AusBoss v${AUSBOSS_JS_VERSION}`,
+      url: "https://github.com/ausboss/ComfyUI-AusBoss",
+      icon: "pi pi-github",
+    },
+    {
+      label: "报告问题",
+      url: "https://github.com/ausboss/ComfyUI-AusBoss/issues",
+      icon: "pi pi-flag",
+    },
+  ],
+  settings: [
+    {
+      id: FAVICON_SETTING,
+      name: "标签页图标状态",
+      type: "boolean",
+      defaultValue: true,
+      category: ["🆎 AusBoss", "Chrome", "标签页图标状态"],
+      tooltip:
+        "在浏览器标签页上显示渲染状态：标签图标会在 " +
+        "闲置的青绿色方块和执行提示词时带亮点的活动版本之间切换； " +
+        "执行提示词时标签标题会多出一个 " +
+        "\"(N)\" 形式的队列深度前缀，队列一空就消失。 " +
+        "关闭此项会立刻恢复浏览器默认图标和 " +
+        "标题。",
+      onChange(value) {
+        const on = value !== false;
+        if (on === favicon.enabled) return;
+        favicon.enabled = on;
+        if (on) enableFavicon();
+        else disableFavicon();
+      },
+    },
+    {
+      id: RUNTIME_SETTING,
+      name: "节点耗时标记",
+      type: "boolean",
+      defaultValue: false,
+      category: ["🆎 AusBoss", "Chrome", "节点耗时"],
+      tooltip:
+        "运行结束后，每个执行过的节点右上角会出现一个小标记， " +
+        "显示它花了几秒；被批处理循环重复执行的节点， " +
+        "显示的是累计时间。默认关闭，因为它 " +
+        "会让画布显得杂乱。",
+      onChange(value) {
+        const on = value === true;
+        if (on === runtime.enabled) return;
+        runtime.enabled = on;
+        if (on) enableRuntime();
+        else disableRuntime();
+      },
+    },
+    {
+      id: STATUS_SETTING,
+      name: "节点实时状态标记",
+      type: "boolean",
+      defaultValue: true,
+      category: ["🆎 AusBoss", "Chrome", "实时状态"],
+      tooltip:
+        "当 AusBoss 节点上报进度时——比如 LaMa 局部重绘的 " +
+        "逐帧循环——会在它右上角显示一个标记， " +
+        "标出当前步数，并配一条按比例填充的进度条。这个标记 " +
+        "只在节点运行期间存在：节点结束时、 " +
+        "以及运行完成、失败或中止时都会清除。",
+      onChange(value) {
+        const on = value !== false;
+        if (on === status.enabled) return;
+        status.enabled = on;
+        if (on) enableStatus();
+        else disableStatus();
+      },
+    },
+  ],
+  setup() {
+    // onChange only fires on later edits on some frontends, so seed every
+    // feature from its stored value here.
+    const stored = app.ui?.settings?.getSettingValue?.(FAVICON_SETTING);
+    if (stored !== false && !favicon.enabled) {
+      favicon.enabled = true;
+      enableFavicon();
+    }
+    const runtimeStored = app.ui?.settings?.getSettingValue?.(RUNTIME_SETTING);
+    if (runtimeStored === true && !runtime.enabled) {
+      runtime.enabled = true;
+      enableRuntime();
+    }
+    const statusStored = app.ui?.settings?.getSettingValue?.(STATUS_SETTING);
+    if (statusStored !== false && !status.enabled) {
+      status.enabled = true;
+      enableStatus();
+    }
+    installDrawHook();
+  },
+});

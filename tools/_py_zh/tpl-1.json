@@ -1,0 +1,119 @@
+{
+ "batch": 1,
+ "messages": [
+  {
+   "text": "⟦0⟧ expected a BHWC IMAGE batch."
+  },
+  {
+   "text": "Math Expression does not allow the ⟦0⟧ operator."
+  },
+  {
+   "text": "Transform: frame ⟦0⟧ produced dimensions that differ from frame 0."
+  },
+  {
+   "text": "⟦0⟧ expected a BHW MASK."
+  },
+  {
+   "text": "⟦0⟧ has no sound in it."
+  },
+  {
+   "text": "⟦0⟧ received an empty IMAGE batch."
+  },
+  {
+   "text": "A PSD here holds 1 to ⟦0⟧ layers."
+  },
+  {
+   "text": "A PSD holds pictures up to ⟦0⟧ px a side."
+  },
+  {
+   "text": "Align Image mode must be one of ⟦0⟧, not '⟦1⟧'."
+  },
+  {
+   "text": "Align Image pad_fill must be one of ⟦0⟧, not '⟦1⟧'."
+  },
+  {
+   "text": "Describe Picture ⟦0⟧ once, in one looks like line."
+  },
+  {
+   "text": "Fixed frames needs ⟦0⟧s but the source is only ⟦1⟧s. Reduce Fixed frames."
+  },
+  {
+   "text": "Image Compare: at most ⟦0⟧ points in one mix."
+  },
+  {
+   "text": "Image Compare: at most ⟦0⟧ points in one stroke."
+  },
+  {
+   "text": "Image Compare: at most ⟦0⟧ strokes in one mix."
+  },
+  {
+   "text": "Image Compare: pictures up to ⟦0⟧ px a side can be mixed."
+  },
+  {
+   "text": "Image Compare: ⟦0⟧ must be a number."
+  },
+  {
+   "text": "Image Folder: From must be one of ⟦0⟧, not '⟦1⟧'."
+  },
+  {
+   "text": "Latent Size: ⟦0⟧×⟦1⟧ is outside the workflow's allowed sizes: ⟦2⟧."
+  },
+  {
+   "text": "LoRA file not found in models/loras: ⟦0⟧"
+  },
+  {
+   "text": "LoRA name matches several files in models/loras: ⟦0⟧"
+  },
+  {
+   "text": "LoRA path escapes the loras folders: ⟦0⟧"
+  },
+  {
+   "text": "LoRA stack is not valid JSON: ⟦0⟧"
+  },
+  {
+   "text": "LoRA stack row ⟦0⟧ must be an object."
+  },
+  {
+   "text": "Load Image + Pad: source_image has ⟦0⟧ channels."
+  },
+  {
+   "text": "Mask by Touch: asking SAM 3 the quick way is off (⟦0⟧); answers are the same, only slower."
+  },
+  {
+   "text": "Mask by Touch: the node's picture is unavailable (⟦0⟧)."
+  },
+  {
+   "text": "Math Expression allows only numbers, not ⟦0⟧ literals."
+  },
+  {
+   "text": "Math Expression could not be parsed: ⟦0⟧."
+  },
+  {
+   "text": "Math Expression does not allow keyword arguments to ⟦0⟧()."
+  },
+  {
+   "text": "Math Expression does not allow ⟦0⟧ syntax."
+  },
+  {
+   "text": "Math Expression knows only the names a, b and c, not ⟦0⟧."
+  },
+  {
+   "text": "Math Expression: ⟦0⟧() takes ⟦1⟧ argument(s), got ⟦2⟧."
+  },
+  {
+   "text": "Pad mode must be one of ⟦0⟧, got '⟦1⟧'."
+  },
+  {
+   "text": "Picture ⟦0⟧ is not connected. Connect the new person's picture or remove its looks like line."
+  },
+  {
+   "text": "Picture ⟦0⟧ must be a person or character sheet for a swap's looks like line."
+  },
+  {
+   "text": "Presets: could not read ⟦0⟧: ⟦1⟧"
+  },
+  {
+   "text": "Presets: skipped entries that are not W:H integer pairs: ⟦0⟧"
+  }
+ ]
+}

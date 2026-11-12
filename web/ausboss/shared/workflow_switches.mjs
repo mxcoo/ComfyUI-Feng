@@ -1,0 +1,1256 @@
+// Workflow Switches: the decisions behind js/workflow_switches/index.js.
+// Which nodes a switch holds, whether it reads on, off or mixed, which rows
+// the card lists and in what order, and which node modes a click changes. No
+// DOM and no app import, so tests/workflow_switches.test.mjs runs it under
+// node:test.
+//
+// A switch is either one the user made from picked nodes and groups (stored
+// in the node's properties, by id) or a group listed on its own. A made
+// switch can also change settings instead of turning nodes off: it keeps
+// what chosen nodes' controls held when "on" was saved and when "off" was
+// saved, and switches the values that differ. The truth lives in the nodes'
+// own modes and values. Nothing here remembers what a switch was; every
+// answer is read fresh from the graph, which is why a saved workflow, an
+// undo or a change made by hand elsewhere always shows right.
+//
+// A made switch can also have an off side: nodes and groups that run only
+// while the row is off. Switching the row on turns them off, and switching it
+// off turns them on, the opposite of the nodes the row holds itself.
+//
+// A made switch can also be a choice: one way of setting some nodes, saved
+// under a name. Choices have no off side of their own. What a choice changes
+// is what it holds differently from the other choices on its card, so two
+// saves make a pill and a third value on one control needs nothing more. A
+// card that has choices is one pill and nothing else.
+
+// LiteGraph's node modes. Mute is the frontend's "never".
+export const MODE_ALWAYS = 0;
+export const MODE_NEVER = 2;
+export const MODE_BYPASS = 4;
+
+export const SETTINGS_PROPERTY = "ausboss_workflow_switches";
+
+export const TITLE_MAX = 60;
+export const SWITCHES_MAX = 40;
+export const MEMBERS_MAX = 400;
+// A switch that changes settings: how many nodes it may remember, how many
+// controls of each, and how long a remembered text may be.
+export const VALUE_NODES_MAX = 40;
+export const VALUE_WIDGETS_MAX = 80;
+export const VALUE_TEXT_MAX = 20000;
+
+export const DEFAULT_SETTINGS = Object.freeze({
+  off: "bypass", // what a switched-off part does: "bypass" | "mute"
+  groups: "all", // which groups get a row of their own: "all" | "numbered" | "matching" | "none"
+  match: "", // comma-separated title text, read when groups is "matching"
+  order: "canvas", // group rows: "canvas" (the way the workflow reads) | "title"
+  exclusive: false, // one at a time: switching a row on switches the other rows off
+  // with one at a time on, how the card shows its rows: "rows" (each with its
+  // own off | on) | "pill" (every row is a choice in one pill, one always picked)
+  show: "rows",
+  // the made switches: { id, title, nodes, groups, on, off }, and nodes_off /
+  // groups_off (the off side) while they hold something, and choice: true for
+  // a choice
+  switches: Object.freeze([]),
+});
+
+const CHOICES = {
+  off: ["bypass", "mute"],
+  groups: ["all", "numbered", "matching", "none"],
+  order: ["canvas", "title"],
+  show: ["rows", "pill"],
+};
+
+export function cleanTitle(title) {
+  const text = ["string", "number", "boolean"].includes(typeof title) ? String(title) : "";
+  return text.replace(/\s+/g, " ").trim().slice(0, TITLE_MAX);
+}
+
+// Node and group ids as a workflow file stores them: numbers, or text for a
+// frontend that names them. A whole number held as text ("12", which is how
+// some frontends keep a node's id while the graph is open) is stored as the
+// number, so a switch reads the same whichever one saved it. Anything else
+// is dropped, and so is a repeat.
+export function cleanIds(list, limit = MEMBERS_MAX) {
+  const seen = new Set();
+  const ids = [];
+  for (const raw of Array.isArray(list) ? list : []) {
+    let id = null;
+    if (typeof raw === "number" && Number.isFinite(raw)) id = raw;
+    else if (typeof raw === "string" && /^(0|[1-9]\d{0,14})$/.test(raw.trim())) id = Number(raw.trim());
+    else if (typeof raw === "string" && raw.trim()) id = raw.trim();
+    if (id === null || seen.has(String(id))) continue;
+    seen.add(String(id));
+    ids.push(id);
+    if (ids.length >= limit) break;
+  }
+  return ids;
+}
+
+// A value a control can hold and a workflow file can store: text, a number,
+// or on/off. Anything else (and text past the limit) is not remembered.
+function cleanValue(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.length <= VALUE_TEXT_MAX) return value;
+  return undefined;
+}
+
+// One side of a switch that changes settings: for each of its nodes (by id)
+// what the node's controls held when that side was saved, by widget name.
+export function cleanSnapshots(raw) {
+  const sides = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return sides;
+  let nodes = 0;
+  for (const [id, widgets] of Object.entries(raw)) {
+    if (!widgets || typeof widgets !== "object" || Array.isArray(widgets)) continue;
+    const kept = {};
+    let count = 0;
+    for (const [name, value] of Object.entries(widgets)) {
+      const clean = cleanValue(value);
+      if (clean === undefined || !name) continue;
+      kept[name] = clean;
+      count += 1;
+      if (count >= VALUE_WIDGETS_MAX) break;
+    }
+    if (!count) continue;
+    sides[String(id)] = kept;
+    nodes += 1;
+    if (nodes >= VALUE_NODES_MAX) break;
+  }
+  return sides;
+}
+
+// The made switches, whatever a saved workflow or a hand edit left there.
+// Every switch keeps a small whole-number id of its own; a missing or
+// repeated one is replaced, so two rows are never told apart by title. A
+// node whose values a switch changes is not also turned off by it.
+//
+// The off side (`nodes_off`, `groups_off`) is cleaned and limited like the
+// nodes and groups beside it, and left out while it is empty, so a switch that
+// does not use it is stored exactly as before. An id on both sides of one row
+// stays on the first side only, and a node whose values the switch changes is
+// not on the off side either.
+export function normalizeSwitches(raw) {
+  const switches = [];
+  const used = new Set();
+  for (const item of Array.isArray(raw) ? raw : []) {
+    if (!item || typeof item !== "object") continue;
+    let id = typeof item.id === "number" || typeof item.id === "string" ? Number(item.id) : NaN;
+    if (!Number.isInteger(id) || id < 1 || used.has(id)) {
+      id = 1;
+      while (used.has(id)) id += 1;
+    }
+    used.add(id);
+    const on = cleanSnapshots(item.on);
+    const off = cleanSnapshots(item.off);
+    const nodes = cleanIds(item.nodes).filter((member) => !(String(member) in on) && !(String(member) in off));
+    const groups = cleanIds(item.groups);
+    const heldNodes = new Set(nodes.map(String));
+    const heldGroups = new Set(groups.map(String));
+    const nodesOff = cleanIds(item.nodes_off).filter(
+      (member) => !heldNodes.has(String(member)) && !(String(member) in on) && !(String(member) in off),
+    );
+    const groupsOff = cleanIds(item.groups_off).filter((member) => !heldGroups.has(String(member)));
+    switches.push({
+      id,
+      title: cleanTitle(item.title) || `开关 ${id}`,
+      nodes,
+      groups,
+      ...(nodesOff.length ? { nodes_off: nodesOff } : {}),
+      ...(groupsOff.length ? { groups_off: groupsOff } : {}),
+      ...(item.choice === true ? { choice: true } : {}),
+      on,
+      off,
+    });
+    if (switches.length >= SWITCHES_MAX) break;
+  }
+  return switches;
+}
+
+// Whether a made switch has an off side: nodes or groups that run only while
+// its row is off.
+export function hasOffSide(entry) {
+  return Boolean(entry?.nodes_off?.length || entry?.groups_off?.length);
+}
+
+// Settings from a node property: unknown values fall back to the defaults,
+// never throw.
+export function normalizeSettings(raw) {
+  const source = raw && typeof raw === "object" ? raw : {};
+  const settings = { ...DEFAULT_SETTINGS };
+  for (const [key, allowed] of Object.entries(CHOICES)) {
+    if (allowed.includes(source[key])) settings[key] = source[key];
+  }
+  if (typeof source.match === "string") settings.match = source.match.slice(0, 200);
+  if (typeof source.exclusive === "boolean") settings.exclusive = source.exclusive;
+  settings.switches = normalizeSwitches(source.switches);
+  // A card that has choices is one pill, and a group row would be one more
+  // choice in it.
+  if (hasChoices(settings)) Object.assign(settings, { exclusive: true, show: "pill", groups: "none" });
+  return settings;
+}
+
+// Whether a card holds choices, read from its settings.
+export function hasChoices(settings) {
+  return Boolean(settings?.switches?.some((entry) => entry.choice));
+}
+
+export function offMode(settings) {
+  return settings?.off === "mute" ? MODE_NEVER : MODE_BYPASS;
+}
+
+// A node runs unless it is muted or bypassed.
+export function isRunning(mode) {
+  return mode !== MODE_NEVER && mode !== MODE_BYPASS;
+}
+
+// ---------- geometry ----------
+
+// Half-open, like LiteGraph's own isInRect: a point on a box's right or
+// bottom edge is outside it, so two boxes that touch never share a node.
+export function isInRect(x, y, rect) {
+  return x >= rect[0] && x < rect[0] + rect[2] && y >= rect[1] && y < rect[1] + rect[3];
+}
+
+// The rule the frontend uses to decide what moves with a group: a node
+// belongs to every group whose box holds the centre of the node's box.
+export function centreInside(rect, bounds) {
+  return isInRect(bounds[0] + bounds[2] * 0.5, bounds[1] + bounds[3] * 0.5, rect);
+}
+
+function usableRect(rect) {
+  return (
+    rect != null && typeof rect.length === "number" && rect.length >= 4
+    && [0, 1, 2, 3].every((index) => Number.isFinite(Number(rect[index])))
+    && (Number(rect[2]) > 0 || Number(rect[3]) > 0)
+  );
+}
+
+function toRect(rect) {
+  return [Number(rect[0]), Number(rect[1]), Number(rect[2]), Number(rect[3])];
+}
+
+// A node's box as LiteGraph measures it: the body plus its title bar. The
+// canvas re-measures every node on every frame it draws (the same pass that
+// decides which nodes are visible), so the cached boundingRect is current;
+// a node never measured yet is measured here from its position and size.
+export function nodeBounds(node, { titleHeight = 30, collapsedWidth = 80 } = {}) {
+  if (usableRect(node?.boundingRect)) return toRect(node.boundingRect);
+  const pos = node?.pos ?? [0, 0];
+  const size = node?.size ?? [0, 0];
+  // Title modes: 1 = no title, 2 = transparent title; neither adds a bar.
+  const bar = node?.title_mode === 1 || node?.title_mode === 2 ? 0 : titleHeight;
+  const x = Number(pos[0]) || 0;
+  const y = (Number(pos[1]) || 0) - bar;
+  if (node?.flags?.collapsed) return [x, y, Number(node._collapsed_width) || collapsedWidth, titleHeight];
+  return [x, y, Number(size[0]) || 0, (Number(size[1]) || 0) + bar];
+}
+
+export function groupBounds(group) {
+  for (const rect of [group?.boundingRect, group?._bounding]) {
+    if (usableRect(rect)) return toRect(rect);
+  }
+  const pos = group?.pos ?? [0, 0];
+  const size = group?.size ?? [0, 0];
+  return [Number(pos[0]) || 0, Number(pos[1]) || 0, Number(size[0]) || 0, Number(size[1]) || 0];
+}
+
+// The smallest box around several boxes, or null for none: what the frame
+// button brings into view for a switch whose nodes sit apart.
+export function unionRect(rects) {
+  let box = null;
+  for (const rect of rects ?? []) {
+    if (!usableRect(rect)) continue;
+    const [x, y, w, h] = toRect(rect);
+    if (!box) box = [x, y, x + w, y + h];
+    else box = [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x + w), Math.max(box[3], y + h)];
+  }
+  return box ? [box[0], box[1], box[2] - box[0], box[3] - box[1]] : null;
+}
+
+// What the frame button brings into view. The canvas fits a box to `fill` of
+// the view, which would zoom far in on a part of two small nodes. A box that
+// would be shown larger than life is grown around its centre until it shows
+// at natural size; a big part still fits whole.
+export function frameBounds(rect, view, fill = 0.8) {
+  const [x, y, w, h] = toRect(rect);
+  const minW = Number(view?.[0]) * fill;
+  const minH = Number(view?.[1]) * fill;
+  if (!(w > 0) || !(h > 0) || !(minW > 0) || !(minH > 0) || w >= minW || h >= minH) return [x, y, w, h];
+  const grow = Math.min(minW / w, minH / h);
+  return [x - (w * grow - w) / 2, y - (h * grow - h) / 2, w * grow, h * grow];
+}
+
+// ---------- reading a graph ----------
+
+// Whether a node's mode changes what a run does. A subgraph node's does
+// (while it is off nothing inside it runs) even though the frontend calls it
+// virtual; other virtual nodes - notes, primitives, reroute nodes - never
+// run, and neither does a node with no outputs that is not an output node (a
+// Workflow Note, a Run Timer). Those still switch with their part, but they
+// never make it read mixed.
+export function modeMatters(node) {
+  if (node?.isSubgraphNode?.() === true) return true;
+  if (node?.isVirtualNode) return false;
+  const definition = node?.constructor?.nodeData;
+  if (definition && !definition.output_node && !(node.outputs?.length > 0)) return false;
+  return true;
+}
+
+// What a switch shows. Only nodes whose mode changes a run are counted (a
+// note inside a group never makes it read "mixed"); a part of nothing but
+// such nodes is read from all of them, and one holding no node at all is
+// "empty".
+//
+// A switch that changes settings adds one unit per setting (`pairs`, see
+// readPairs): a setting at its "on" value counts as on, at its "off" value
+// as off, and at anything else as neither, which reads mixed.
+//
+// A switch with an off side (`offSide`, the nodes that run only while the row
+// is off) adds one unit per node the other way round: a node that does not run
+// counts as on, one that runs as off. So the row is on when its own nodes run
+// and its off side does not, off when it is the reverse, and mixed otherwise.
+export function partState(members, counts = () => true, pairs = [], offSide = []) {
+  const counted = members.filter(counts);
+  const flipped = offSide.filter(counts);
+  // A part of nothing but nodes that never run is read from all of them.
+  const alone = !counted.length && !flipped.length && !pairs.length;
+  const pool = alone ? members : counted;
+  const other = alone ? offSide : flipped;
+  const total = pool.length + other.length + pairs.length;
+  if (!total) return { state: "empty", on: 0, total: 0 };
+  const running = pool.filter((node) => isRunning(node.mode)).length;
+  const idle = other.filter((node) => !isRunning(node.mode)).length;
+  const on = running + idle + pairs.filter((pair) => pair.now === "on").length;
+  const off = pool.length - running + other.length - idle + pairs.filter((pair) => pair.now === "off").length;
+  const state = on === total ? "on" : off === total ? "off" : "mixed";
+  return { state, on, total };
+}
+
+// ---------- switches that change settings ----------
+
+// What a node's own controls hold right now, by widget name: what "save as
+// on" remembers. A card or panel that is not saved with the workflow has no
+// value of its own and is left out.
+export function snapshotNode(node) {
+  const values = {};
+  let count = 0;
+  for (const widget of node?.widgets ?? []) {
+    if (!widget || widget.serialize === false || typeof widget.name !== "string" || !widget.name) continue;
+    const clean = cleanValue(widget.value);
+    if (clean === undefined) continue;
+    values[widget.name] = clean;
+    count += 1;
+    if (count >= VALUE_WIDGETS_MAX) break;
+  }
+  return values;
+}
+
+// A LoRA stack keeps every row in one text value: a list of rows, each with
+// a file name and whether it is on. Returns the rows, or null for any other
+// text.
+export function stackRows(value) {
+  if (typeof value !== "string" || !value.startsWith("[")) return null;
+  let rows;
+  try {
+    rows = JSON.parse(value);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(rows)) return null;
+  const isRow = (row) => row && typeof row === "object" && typeof row.name === "string" && typeof row.enabled === "boolean";
+  return rows.every(isRow) ? rows : null;
+}
+
+// A stack row is known by its file name, not by the folder in front of it:
+// the LoRA Loader rewrites a row to the path it found the file at
+// ("qwen/turbo.safetensors") on a refresh, and reads names the same way
+// (resolveLoraName in lora_stack.mjs). The exact name wins; otherwise the one
+// row with that file name. Two rows with one file name are never guessed at.
+const fileKey = (name) =>
+  String(name).split("/").pop().split("\\").pop().toLowerCase().replace(/\.(safetensors|sft|ckpt|pt)$/, "");
+
+function findRow(rows, name) {
+  const exact = rows.find((row) => row.name === name);
+  if (exact) return exact;
+  const wanted = fileKey(name);
+  const same = rows.filter((row) => fileKey(row.name) === wanted);
+  return same.length === 1 ? same[0] : undefined;
+}
+
+// A strength as the LoRA Loader reads it: a missing one is the fallback.
+function strengthOf(value, fallback) {
+  const number = value === null || value === undefined || value === "" ? NaN : Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+// What a stack row holds that a switch can set: whether it is on, and its
+// model and CLIP strengths, read the way the loader reads them (no strength
+// is 1, no CLIP strength is the model's).
+function rowSetting(row) {
+  const strength = strengthOf(row.strength, 1);
+  return { enabled: Boolean(row.enabled), strength, strength_clip: strengthOf(row.strength_clip, strength) };
+}
+
+const STRENGTHS = ["strength", "strength_clip"];
+
+// What a switch sets on one stack row, for its on and its off: whether the
+// row is on, and a strength only where the two sides give the row different
+// ones. A switch made to turn a row on and off (both sides at one strength,
+// the usual case) leaves the strength to the person: a row turned down to 0.6
+// by hand keeps its 0.6 through every click and still reads on or off.
+// Returns [on, off], or null when both sides hold the row the same way.
+function rowSides(onRow, offRow) {
+  const a = rowSetting(onRow);
+  const b = rowSetting(offRow);
+  const on = { enabled: a.enabled };
+  const off = { enabled: b.enabled };
+  let differs = a.enabled !== b.enabled;
+  for (const key of STRENGTHS) {
+    if (a[key] === b[key]) continue;
+    on[key] = a[key];
+    off[key] = b[key];
+    differs = true;
+  }
+  return differs ? [on, off] : null;
+}
+
+// Whether a stack row holds everything one side of a switch sets on it.
+function rowAt(row, side) {
+  const now = rowSetting(row);
+  return Object.keys(side).every((key) => now[key] === side[key]);
+}
+
+// A stack's groups and whether each is switched off. A group is off when any
+// of its rows says so; the LoRA Loader keeps them all alike.
+function groupStates(rows) {
+  const states = new Map();
+  for (const row of rows) {
+    if (typeof row.group !== "string" || !row.group) continue;
+    states.set(row.group, Boolean(states.get(row.group)) || row.group_off === true);
+  }
+  return states;
+}
+
+function withoutGroupOff(row) {
+  const { group_off, ...rest } = row;
+  return rest;
+}
+
+// The settings a switch changes: every control that held one value when "on"
+// was saved and another when "off" was saved. A LoRA stack is compared row
+// by row, by file name, so the switch moves only the rows that differ and
+// leaves whatever else was changed in the stack since; on such a row it sets
+// only what differs between the sides (see rowSides). A group of the stack
+// switched on in one side and off in the other is one setting of its own:
+// the switch moves the group's switch and leaves each row in it to the
+// person. Returns { node, widget, on, off } and, for a stack row,
+// { ..., row }, for a stack group { ..., group }.
+export function valuePairs(entry) {
+  const pairs = [];
+  for (const [id, on] of Object.entries(entry?.on ?? {})) {
+    const off = entry?.off?.[id];
+    if (!off) continue;
+    for (const [widget, onValue] of Object.entries(on)) {
+      if (!(widget in off) || off[widget] === onValue) continue;
+      const offValue = off[widget];
+      const onRows = stackRows(onValue);
+      const offRows = stackRows(offValue);
+      if (!onRows || !offRows) {
+        pairs.push({ node: id, widget, on: onValue, off: offValue });
+        continue;
+      }
+      for (const row of onRows) {
+        const other = findRow(offRows, row.name);
+        const sides = other && rowSides(row, other);
+        if (sides) pairs.push({ node: id, widget, row: row.name, on: sides[0], off: sides[1] });
+      }
+      const offGroups = groupStates(offRows);
+      for (const [group, onOff] of groupStates(onRows)) {
+        if (!offGroups.has(group) || offGroups.get(group) === onOff) continue;
+        pairs.push({ node: id, widget, group, on: { group_off: onOff }, off: { group_off: offGroups.get(group) } });
+      }
+    }
+  }
+  return pairs;
+}
+
+// What a choice changes: every setting it holds differently from another
+// choice on the card. A setting all of them hold alike is left alone, so a
+// node can be saved whole and still be changed by hand. A choice has no off
+// value of its own: `off` here is only the first other value found.
+export function choicePairs(entry, switches) {
+  const found = new Map();
+  for (const other of switches ?? []) {
+    if (other === entry || !other.choice) continue;
+    for (const pair of valuePairs({ on: entry.on, off: other.on })) {
+      const previous = found.get(pairKey(pair));
+      if (!previous) found.set(pairKey(pair), { ...pair, choice: true });
+      else if (pair.row !== undefined) {
+        previous.on = { ...previous.on, ...pair.on };
+        previous.off = { ...pair.off, ...previous.off };
+      }
+    }
+  }
+  return [...found.values()];
+}
+
+// Where a setting stands now: at its on value, its off value, or neither.
+export function pairNow(pair, current) {
+  if (pair.group !== undefined) {
+    const rows = stackRows(current);
+    const off = rows ? groupStates(rows).get(pair.group) : undefined;
+    if (off === undefined) return "other";
+    return off === pair.on.group_off ? "on" : off === pair.off.group_off ? "off" : "other";
+  }
+  if (pair.row === undefined) return current === pair.on ? "on" : current === pair.off ? "off" : "other";
+  const rows = stackRows(current);
+  const row = rows && findRow(rows, pair.row);
+  if (!row) return "other";
+  return rowAt(row, pair.on) ? "on" : rowAt(row, pair.off) ? "off" : "other";
+}
+
+// The value a control should hold for one side of a switch. For a stack row
+// it is the stack as it is now with that one row changed, and only in what
+// the switch sets on it: the row's other strengths and its triggers stay.
+// For a stack group it is every row now in that group, rows added since the
+// switch was saved included, and only the group's switch changes.
+export function pairValue(pair, side, current) {
+  const want = side === "on" ? pair.on : pair.off;
+  if (pair.group !== undefined) {
+    const rows = stackRows(current);
+    if (!rows) return current;
+    return JSON.stringify(rows.map((row) => row.group !== pair.group ? row
+      : want.group_off ? { ...row, group_off: true } : withoutGroupOff(row)));
+  }
+  if (pair.row === undefined) return want;
+  const rows = stackRows(current);
+  if (!rows) return current;
+  const target = findRow(rows, pair.row);
+  return JSON.stringify(rows.map((row) => (row === target ? { ...row, ...want } : row)));
+}
+
+// Whether two stack row names are the same LoRA: the same name, or the same
+// file in another folder (see fileKey).
+function sameFile(a, b) {
+  return a === b || (Boolean(a) && Boolean(b) && fileKey(a) === fileKey(b));
+}
+
+// The made switches that move one row of a LoRA stack: every switch, on any
+// of the given Workflow Switches nodes, whose settings change that row of
+// that control on that node. `boards` is [{ node, settings }], one per
+// Workflow Switches node; the answer is [{ node, id, title }].
+export function stackRowOwners(boards, nodeId, widget, rowName) {
+  const owners = [];
+  if (!rowName) return owners;
+  for (const { node, settings } of boards ?? []) {
+    const { switches } = normalizeSettings(settings);
+    for (const entry of switches) {
+      const moves = (entry.choice ? choicePairs(entry, switches) : valuePairs(entry)).some(
+        (pair) => pair.row !== undefined && String(pair.node) === String(nodeId) && pair.widget === widget && sameFile(pair.row, rowName),
+      );
+      if (moves) owners.push({ node, id: entry.id, title: entry.title });
+    }
+  }
+  return owners;
+}
+
+// The made switches that move one group of a LoRA stack, answered like
+// stackRowOwners. A group is known by its exact name.
+export function stackGroupOwners(boards, nodeId, widget, group) {
+  const owners = [];
+  if (!group) return owners;
+  for (const { node, settings } of boards ?? []) {
+    const { switches } = normalizeSettings(settings);
+    for (const entry of switches) {
+      const moves = (entry.choice ? choicePairs(entry, switches) : valuePairs(entry)).some(
+        (pair) => pair.group === group && String(pair.node) === String(nodeId) && pair.widget === widget,
+      );
+      if (moves) owners.push({ node, id: entry.id, title: entry.title });
+    }
+  }
+  return owners;
+}
+
+// Rewrite one stack value of a switch's saved sides, row list in, row list out.
+function changeStackSides(entry, nodeId, widget, change) {
+  const edit = (side) => {
+    const values = side?.[String(nodeId)];
+    const rows = stackRows(values?.[widget]);
+    if (!rows) return side;
+    return { ...side, [String(nodeId)]: { ...values, [widget]: JSON.stringify(change(rows)) } };
+  };
+  return { on: edit(entry.on), off: edit(entry.off) };
+}
+
+// Take one group of a LoRA stack away from a switch: both saved sides forget
+// whether it was switched off, so the switch leaves it alone.
+export function releaseStackGroup(settings, id, nodeId, widget, group) {
+  return changeSwitch(settings, id, (entry) => changeStackSides(entry, nodeId, widget,
+    (rows) => rows.map((row) => row.group === group ? withoutGroupOff(row) : row)));
+}
+
+// A group renamed in the stack: every switch that saved it follows the name.
+export function renameStackGroup(settings, nodeId, widget, from, to) {
+  const current = normalizeSettings(settings);
+  const rename = (rows) => rows.map((row) => row.group === from ? { ...row, group: to } : row);
+  return withSwitches(current, current.switches.map((entry) => tidy({ ...entry, ...changeStackSides(entry, nodeId, widget, rename) })));
+}
+
+// Take one row of a LoRA stack away from a switch: both of its saved sides
+// forget that row, so the switch leaves it alone and no longer reads
+// "changed" because of it. The rest of what the switch does stays.
+export function releaseStackRow(settings, id, nodeId, widget, rowName) {
+  const forget = (side) => {
+    const values = side?.[String(nodeId)];
+    const rows = stackRows(values?.[widget]);
+    const row = rows && findRow(rows, rowName);
+    if (!row) return side;
+    return { ...side, [String(nodeId)]: { ...values, [widget]: JSON.stringify(rows.filter((other) => other !== row)) } };
+  };
+  return changeSwitch(settings, id, (entry) => ({ on: forget(entry.on), off: forget(entry.off) }));
+}
+
+// A switch's settings as they stand on the graph: each pair with its node,
+// its control and where it is now. A pair whose node or control is gone is
+// left out. A choice's setting is either at its value or not: the next choice
+// along is a third value, not a change made by hand.
+export function readPairs(entry, nodeById, held = valuePairs(entry)) {
+  const pairs = [];
+  for (const pair of held) {
+    const live = nodeById.get(String(pair.node))?.node;
+    const control = live?.widgets?.find((widget) => widget?.name === pair.widget);
+    if (!control) continue;
+    const now = pairNow(pair, control.value);
+    pairs.push({ ...pair, live, control, now: pair.choice && now === "other" ? "off" : now });
+  }
+  return pairs;
+}
+
+// Every node a switch may touch, with its box. `skip` leaves nodes out
+// entirely (a Workflow Switches node never switches itself or another one).
+export function placeNodes(nodes, { skip = () => false, measure = {} } = {}) {
+  const placed = [];
+  for (const node of nodes ?? []) {
+    if (!node || skip(node)) continue;
+    placed.push({ node, rect: nodeBounds(node, measure) });
+  }
+  return placed;
+}
+
+// Every group of a graph with the nodes inside it and its state. `counts`
+// says whose mode decides the state (see partState).
+export function readGroups(groups, placed, { counts = () => true } = {}) {
+  return [...(groups ?? [])].filter(Boolean).map((group) => {
+    const rect = groupBounds(group);
+    const members = placed.filter((entry) => centreInside(rect, entry.rect)).map((entry) => entry.node);
+    return {
+      kind: "group",
+      group,
+      rect,
+      title: String(group.title ?? ""),
+      // Group colors come from a hex picker; a CSS background must never
+      // receive URL functions or references from a saved workflow.
+      color: typeof group.color === "string" && /^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i.test(group.color.trim()) ? group.color.trim() : null,
+      members,
+      ...partState(members, counts),
+    };
+  });
+}
+
+// The made switches with the nodes they hold right now: the picked nodes
+// that still exist, plus whatever sits inside a picked group at this moment.
+// An id whose node or group is gone is passed over, never removed here: a
+// graph that is still loading has not got all its nodes yet.
+//
+// A switch with an off side also gets `offMembers`, found the same way from
+// its `nodes_off` and `groups_off`, and its frame takes in both sides. Nodes
+// picked by hand are placed first, on the on side and then the off side, and
+// only then the nodes of the groups. So a node is on one side only: the on
+// side when it is on both, and the side it was picked for even when a group of
+// the other side holds it too.
+export function readSwitches(switches, placed, groupRows, { counts = () => true } = {}) {
+  const nodeById = new Map(placed.map((entry) => [String(entry.node.id), entry]));
+  const groupById = new Map();
+  for (const row of groupRows ?? []) {
+    const id = row.group?.id;
+    if (id !== undefined && id !== null && !groupById.has(String(id))) groupById.set(String(id), row);
+  }
+  return (switches ?? []).map((entry) => {
+    const sides = new Set([...Object.keys(entry.on ?? {}), ...Object.keys(entry.off ?? {})]);
+    const members = [];
+    const offMembers = [];
+    const seen = new Set();
+    const rects = [];
+    let gone = 0;
+    const takeNodes = (ids, into) => {
+      for (const id of ids ?? []) {
+        if (sides.has(String(id))) continue;
+        const hit = nodeById.get(String(id));
+        if (!hit) {
+          gone += 1;
+          continue;
+        }
+        if (seen.has(hit.node)) continue;
+        seen.add(hit.node);
+        into.push(hit.node);
+        rects.push(hit.rect);
+      }
+    };
+    const takeGroups = (ids, into) => {
+      for (const id of ids ?? []) {
+        const row = groupById.get(String(id));
+        if (!row) {
+          gone += 1;
+          continue;
+        }
+        rects.push(row.rect);
+        for (const node of row.members) {
+          if (seen.has(node) || sides.has(String(node.id))) continue;
+          seen.add(node);
+          into.push(node);
+        }
+      }
+    };
+    takeNodes(entry.nodes, members);
+    takeNodes(entry.nodes_off, offMembers);
+    takeGroups(entry.groups, members);
+    takeGroups(entry.groups_off, offMembers);
+    // The nodes whose settings it changes: listed, framed and selected with
+    // the rest, but never turned off by it.
+    const valueNodes = [];
+    for (const id of sides) {
+      const hit = nodeById.get(id);
+      if (!hit) {
+        gone += 1;
+        continue;
+      }
+      valueNodes.push(hit.node);
+      rects.push(hit.rect);
+    }
+    const pairs = readPairs(entry, nodeById, entry.choice ? choicePairs(entry, switches) : valuePairs(entry));
+    const stand = partState(members, counts, pairs, offMembers);
+    return {
+      kind: "switch",
+      entry,
+      rect: unionRect(rects),
+      title: entry.title,
+      color: null,
+      members,
+      offMembers,
+      valueNodes,
+      pairs,
+      // Saved for one side only so far: nothing to switch between yet. A
+      // choice is in the same place until another choice differs from it.
+      half: entry.choice ? !pairs.length : [...sides].some((id) => !(entry.on?.[id] && entry.off?.[id])),
+      gone,
+      ...stand,
+      // A choice is picked or it is not, however many settings match.
+      ...(entry.choice && stand.state === "mixed" ? { state: "off" } : {}),
+    };
+  });
+}
+
+// ---------- which groups, in which order ----------
+
+export function matchTerms(text) {
+  return String(text ?? "")
+    .split(",")
+    .map((term) => term.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+// "numbered" keeps the titles that start with a digit - the stage groups of
+// a workflow laid out as 1 · Load, 2 · Create, ... - and "matching" keeps
+// titles containing any of the comma-separated terms (no terms, no filter).
+// "none" lists no group at all: only the made switches show.
+export function groupListed(title, settings) {
+  const text = String(title ?? "").trim();
+  if (settings?.groups === "none") return false;
+  if (settings?.groups === "numbered") return /^\d/.test(text);
+  if (settings?.groups === "matching") {
+    const terms = matchTerms(settings.match);
+    const lower = text.toLowerCase();
+    return !terms.length || terms.some((term) => lower.includes(term));
+  }
+  return true;
+}
+
+// Canvas order is the way a left-to-right workflow reads: column by column,
+// and top to bottom inside a column. A group joins the column on its left
+// when it starts before that column's narrowest centre line, so a stage
+// stacked under another reads straight after it (1, 2 | 3, 4 | 5 ...), where
+// a row-by-row order would jump across the canvas and back.
+export function canvasOrder(items, rectOf = (item) => item.rect) {
+  const sorted = [...items].sort((a, b) => rectOf(a)[0] - rectOf(b)[0] || rectOf(a)[1] - rectOf(b)[1]);
+  const columns = [];
+  let column = null;
+  let centre = Infinity;
+  for (const item of sorted) {
+    const [x, , w] = rectOf(item);
+    if (column && x < centre) {
+      column.push(item);
+      centre = Math.min(centre, x + w * 0.5);
+      continue;
+    }
+    column = [item];
+    centre = x + w * 0.5;
+    columns.push(column);
+  }
+  return columns.flatMap((members) => members.sort((a, b) => rectOf(a)[1] - rectOf(b)[1] || rectOf(a)[0] - rectOf(b)[0]));
+}
+
+const TITLE_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+// Title order compares numbers as numbers, so "10 · Save" follows "9 · Upscale".
+export function titleOrder(items, titleOf = (item) => item.title) {
+  const canvas = canvasOrder(items);
+  const place = new Map(canvas.map((item, index) => [item, index]));
+  return [...items].sort((a, b) => TITLE_COLLATOR.compare(titleOf(a), titleOf(b)) || place.get(a) - place.get(b));
+}
+
+// The rows the card shows: the made switches in the order they were made
+// (or moved to), then the listed groups in the chosen order.
+export function listedRows(switchRows, groupRows, settings) {
+  const listed = (groupRows ?? []).filter((row) => groupListed(row.title, settings));
+  const ordered = settings?.order === "title" ? titleOrder(listed) : canvasOrder(listed);
+  return [...(switchRows ?? []), ...ordered];
+}
+
+// ---------- switching ----------
+
+// Each half selects its named state, even when that state is already set.
+// Keep the first argument for callers using the existing helper signature.
+export function flipTo(_state, side) {
+  return Boolean(side);
+}
+
+// What putting rows in one state asks of their nodes. A row's own nodes run
+// while it is on and stop (bypass or mute, `off`) while it is off; the nodes
+// on its off side do the opposite. A node that one row stops and another runs
+// ends up running.
+function stateModes(rows, on, off) {
+  const modes = new Map();
+  const run = (row) => (on ? row.members : row.offMembers) ?? [];
+  const stop = (row) => (on ? row.offMembers : row.members) ?? [];
+  for (const row of rows) for (const node of stop(row)) modes.set(node, off);
+  for (const row of rows) for (const node of run(row)) modes.set(node, MODE_ALWAYS);
+  return modes;
+}
+
+// The mode changes one click makes: every node of the row turns on (always)
+// or off (bypass or mute), exactly what the frontend's own "Bypass Group
+// Nodes" / "Set Group Nodes to Always" do, and the nodes on the row's off side
+// do the opposite. One at a time first turns every other listed row off (which
+// runs their off sides) and then this one on, so a node two rows share ends
+// up on. Returns [node, mode] pairs for the nodes that change.
+export function switchPlan(rows, target, on, settings) {
+  const off = offMode(settings);
+  const modes = new Map();
+  if (on && settings?.exclusive) {
+    for (const [node, mode] of stateModes(rows.filter((row) => row !== target), false, off)) modes.set(node, mode);
+  }
+  for (const [node, mode] of stateModes(target ? [target] : [], on, off)) modes.set(node, mode);
+  return [...modes].filter(([node, mode]) => node.mode !== mode);
+}
+
+// Every listed row on or off at once (the node's right-click menu): each row
+// goes to its own on or off, off side included.
+export function switchAllPlan(rows, on, settings) {
+  return [...stateModes(rows, on, offMode(settings))].filter(([node, mode]) => node.mode !== mode);
+}
+
+// The settings one click changes, as [pair, side]: every setting of the row
+// goes to its on or its off value, and one at a time first sends the other
+// rows' settings to off. Only the settings not already there are returned.
+// One setting's address: a control, or one row or group of a LoRA stack.
+function pairKey(pair) {
+  const part = pair.row ?? (pair.group !== undefined ? `\u0000group:${pair.group}` : "");
+  return `${pair.node}|${pair.widget}|${part}`;
+}
+
+export function valuePlan(rows, target, on, settings) {
+  const sides = new Map();
+  if (on && settings?.exclusive) {
+    for (const row of rows) {
+      if (row === target) continue;
+      for (const pair of row.pairs ?? []) if (!pair.choice) sides.set(pairKey(pair), [pair, "off"]);
+    }
+  }
+  for (const pair of target?.pairs ?? []) {
+    // A choice has no off: another choice is what replaces it.
+    if (on || !pair.choice) sides.set(pairKey(pair), [pair, on ? "on" : "off"]);
+  }
+  return [...sides.values()].filter(([pair, side]) => pair.now !== side);
+}
+
+export function valueAllPlan(rows, on) {
+  const sides = new Map();
+  for (const row of rows) {
+    for (const pair of row.pairs ?? []) if (!pair.choice) sides.set(pairKey(pair), [pair, on ? "on" : "off"]);
+  }
+  return [...sides.values()].filter(([pair, side]) => pair.now !== side);
+}
+
+// ---------- one pill for the whole card ----------
+
+// With One at a time on, a card can show its rows as one control: every row
+// is a choice, and exactly one is picked. Up to PILL_CHOICES_MAX choices sit
+// side by side in a segmented pill; more are a list to pick from, the widget
+// cards' rule.
+export const PILL_CHOICES_MAX = 4;
+// What lies between a node's edge and the names in its pill, both sides
+// together: the panel's frame (12 a side in Nodes 2.0, 10 in the classic
+// renderer), the card's border and padding (9) and the pill's own (3).
+export const PILL_FRAME = 48;
+// The room a segment keeps beside its name: 6 px a side, and 2 for rounding.
+export const PILL_SEGMENT_PAD = 14;
+// The widest a node is made for the sake of its pill. Names that need more
+// are a list too.
+export const PILL_NODE_WIDTH_MAX = 400;
+
+// What a choice is called: the row's title, or a plain word for a group
+// nobody named.
+export function rowLabel(row) {
+  return row?.title || (row?.kind === "switch" ? "Switch" : "Group");
+}
+
+// A guess at a name's width where it cannot be measured (under node:test).
+const guessWidth = (text) => [...String(text ?? "")].length * 6.5;
+
+// How wide a node must be for its pill to show every name in full. The
+// segments are equally wide, so the longest name decides. `measure` gives a
+// name's width in pixels, drawn the way a segment draws it.
+export function pillNodeWidth(labels, measure = guessWidth) {
+  const longest = (labels ?? []).reduce((widest, label) => Math.max(widest, Number(measure(label)) || 0), 0);
+  return Math.ceil(PILL_FRAME + (labels?.length ?? 0) * (longest + PILL_SEGMENT_PAD));
+}
+
+// How a card shows its rows: "rows" (one row each, the look every card had
+// before, and the default), "pill" (one segmented pill) or "list" (one list
+// to pick from). The last two need One at a time, Show as set to one pill,
+// and at least two rows: one row alone has nothing to be picked against.
+// `width` is the node width the pill needs, which the card holds as its floor
+// so that no name is cut short; 0 for the other two.
+export function cardView(settings, rows, measure = guessWidth) {
+  const count = rows?.length ?? 0;
+  if (!settings?.exclusive || settings.show !== "pill" || count < 2) return { view: "rows", width: 0 };
+  if (count <= PILL_CHOICES_MAX) {
+    const width = pillNodeWidth(rows.map(rowLabel), measure);
+    if (width <= PILL_NODE_WIDTH_MAX) return { view: "pill", width };
+  }
+  return { view: "list", width: 0 };
+}
+
+// Where a pick-one card stands. It is settled ("one", with the row that is
+// `picked`) when exactly one row is on and no other row is partly on. Any
+// other state is told as it is: "none" (nothing on), "partly" (one row, and
+// only some of it) or "several" (`count` rows on or partly on). A graph edited
+// by hand, or saved before the card was a pill, can be in any of them.
+export function choiceState(rows) {
+  const on = (rows ?? []).filter((row) => row.state === "on");
+  const mixed = (rows ?? []).filter((row) => row.state === "mixed");
+  if (on.length === 1 && !mixed.length) return { kind: "one", picked: on[0], count: 1 };
+  if (!on.length && !mixed.length) return { kind: "none", picked: null, count: 0 };
+  if (!on.length && mixed.length === 1) return { kind: "partly", picked: null, count: 1 };
+  return { kind: "several", picked: null, count: on.length + mixed.length };
+}
+
+// What a click on a choice changes: that row goes on and every other row
+// off, as one at a time does. `modes` and `values` are switchPlan's and
+// valuePlan's answers. Both are empty for the choice that is already the only
+// one on, so a click on it does nothing and one stays picked; from any other
+// state one click leaves exactly this row on. A row with nothing in it cannot
+// be picked: it would only switch the others off.
+export function choosePlan(rows, target, settings) {
+  if (!target || target.state === "empty") return { modes: [], values: [] };
+  const one = { ...settings, exclusive: true };
+  return { modes: switchPlan(rows, target, true, one), values: valuePlan(rows, target, true, one) };
+}
+
+// What settles a One at a time card that has more than one row on or partly
+// on, which a click can't cause but a new switch or the setting itself can:
+// nodes on a canvas start out running, so the rows they make read on. One row
+// stays on and the others go off. `fresh` is a row just made, which gives way
+// to the rows that were there; a row that is fully on goes before one that is
+// partly on, then the top one.
+export function settlePlan(rows, settings, fresh = null) {
+  const running = (rows ?? []).filter((row) => row.state === "on" || row.state === "mixed");
+  if (!settings?.exclusive || running.length < 2) return { modes: [], values: [] };
+  const others = running.filter((row) => row !== fresh);
+  return choosePlan(rows, others.find((row) => row.state === "on") ?? others[0], settings);
+}
+
+// ---------- making and changing switches ----------
+
+function withSwitches(settings, switches) {
+  return { ...normalizeSettings(settings), switches };
+}
+
+function pickedIds(picked) {
+  return { nodes: cleanIds(picked?.nodes), groups: cleanIds(picked?.groups) };
+}
+
+// A name for a new switch, from what was picked: the one box (subgraph) in
+// the selection, else the one group, else the first node. `picked` carries
+// titles here, not ids: { nodes: [{ title, box }], groups: [{ title }] }.
+// A name already on the card gets a number, so two rows never read the same.
+export function suggestTitle(picked, taken = []) {
+  const nodes = picked?.nodes ?? [];
+  const groups = picked?.groups ?? [];
+  const boxes = nodes.filter((node) => node?.box);
+  let base = "";
+  if (boxes.length === 1) base = boxes[0].title;
+  else if (groups.length === 1) base = groups[0].title;
+  else if (nodes.length) base = nodes[0].title;
+  else if (groups.length) base = groups[0].title;
+  base = cleanTitle(base) || "Switch";
+  const used = new Set(taken.map((title) => cleanTitle(title).toLowerCase()));
+  if (!used.has(base.toLowerCase())) return base;
+  for (let number = 2; number < 1000; number += 1) {
+    const next = cleanTitle(`${base.slice(0, TITLE_MAX - 4)} ${number}`);
+    if (!used.has(next.toLowerCase())) return next;
+  }
+  return base;
+}
+
+// A new switch at the end of the list. Returns the new settings and the
+// switch's id, or id null when there is no room for another.
+export function addSwitch(settings, { title, nodes, groups } = {}) {
+  const current = normalizeSettings(settings);
+  if (current.switches.length >= SWITCHES_MAX) return { settings: current, id: null };
+  const id = current.switches.reduce((highest, entry) => Math.max(highest, entry.id), 0) + 1;
+  const entry = { id, title: cleanTitle(title) || `开关 ${id}`, ...pickedIds({ nodes, groups }), on: {}, off: {} };
+  return { settings: withSwitches(current, [...current.switches, entry]), id };
+}
+
+// A new choice at the end of the list, holding what `snapshots` hold
+// ([{ id, values }], as saveValues takes them). Answers like addSwitch.
+export function addChoice(settings, { title, snapshots } = {}) {
+  const made = addSwitch(settings, { title });
+  if (made.id === null) return made;
+  const saved = saveValues(changeSwitch(made.settings, made.id, () => ({ choice: true })), made.id, "on", snapshots);
+  return { settings: normalizeSettings(saved), id: made.id };
+}
+
+// The node ids a card's choices hold: a choice made next holds them too, so
+// the second one needs no selection.
+export function choiceNodeIds(settings) {
+  return [...new Set((settings?.switches ?? []).flatMap((entry) => (entry.choice ? Object.keys(entry.on ?? {}) : [])))];
+}
+
+// What a choice may take from a selection: a node the card's choices set stays
+// on, or picking one would switch off what it just set.
+export function freeForChoice(settings, ids) {
+  const set = new Set(choiceNodeIds(settings));
+  return { ...ids, nodes: (ids?.nodes ?? []).filter((id) => !set.has(String(id))) };
+}
+
+// The choice on the card that `snapshots` would only repeat, or null: nothing
+// they share differs, so the two could not be told apart.
+export function sameChoice(settings, snapshots) {
+  const on = Object.fromEntries((snapshots ?? []).map((item) => [String(item.id), item.values]));
+  return (settings?.switches ?? []).find((entry) => entry.choice
+    && Object.keys(on).some((id) => id in entry.on)
+    && !valuePairs({ on, off: entry.on }).length) ?? null;
+}
+
+// An off side nobody is on is left out of the switch, the way
+// normalizeSwitches stores it.
+function tidy(entry) {
+  const clean = { ...entry };
+  if (!clean.nodes_off?.length) delete clean.nodes_off;
+  if (!clean.groups_off?.length) delete clean.groups_off;
+  return clean;
+}
+
+function changeSwitch(settings, id, change) {
+  const current = normalizeSettings(settings);
+  return withSwitches(current, current.switches.map((entry) => (entry.id === id ? tidy({ ...entry, ...change(entry) }) : entry)));
+}
+
+// An empty name keeps the old one: a switch is never left without a label.
+export function renameSwitch(settings, id, title) {
+  const next = cleanTitle(title);
+  return changeSwitch(settings, id, (entry) => ({ title: next || entry.title }));
+}
+
+export function removeSwitch(settings, id) {
+  const current = normalizeSettings(settings);
+  return withSwitches(current, current.switches.filter((entry) => entry.id !== id));
+}
+
+// One place up (-1) or down (+1) the list; the ends stay put.
+export function moveSwitch(settings, id, step) {
+  const current = normalizeSettings(settings);
+  const from = current.switches.findIndex((entry) => entry.id === id);
+  const to = from + (step < 0 ? -1 : 1);
+  if (from < 0 || to < 0 || to >= current.switches.length) return current;
+  const switches = [...current.switches];
+  [switches[from], switches[to]] = [switches[to], switches[from]];
+  return withSwitches(current, switches);
+}
+
+// A node whose settings the switch already changes stays that way: it is
+// not also turned off. A node or group that was on the off side moves over to
+// the side that runs while the row is on.
+export function addMembers(settings, id, picked) {
+  const extra = pickedIds(picked);
+  return changeSwitch(settings, id, (entry) => {
+    const nodes = cleanIds([...entry.nodes, ...extra.nodes]).filter((member) => !(String(member) in entry.on) && !(String(member) in entry.off));
+    const groups = cleanIds([...entry.groups, ...extra.groups]);
+    const heldNodes = new Set(nodes.map(String));
+    const heldGroups = new Set(groups.map(String));
+    return {
+      nodes,
+      groups,
+      nodes_off: (entry.nodes_off ?? []).filter((member) => !heldNodes.has(String(member))),
+      groups_off: (entry.groups_off ?? []).filter((member) => !heldGroups.has(String(member))),
+    };
+  });
+}
+
+// Put the picked nodes and groups on the switch's off side: they run only
+// while the row is off. One that was on the other side moves over, and a node
+// whose settings the switch changes stays out, as it is not turned off either.
+export function addOffMembers(settings, id, picked) {
+  const extra = pickedIds(picked);
+  return changeSwitch(settings, id, (entry) => {
+    const nodesOff = cleanIds([...(entry.nodes_off ?? []), ...extra.nodes]).filter(
+      (member) => !(String(member) in entry.on) && !(String(member) in entry.off),
+    );
+    const groupsOff = cleanIds([...(entry.groups_off ?? []), ...extra.groups]);
+    const movedNodes = new Set(nodesOff.map(String));
+    const movedGroups = new Set(groupsOff.map(String));
+    return {
+      nodes: entry.nodes.filter((member) => !movedNodes.has(String(member))),
+      groups: entry.groups.filter((member) => !movedGroups.has(String(member))),
+      nodes_off: nodesOff,
+      groups_off: groupsOff,
+    };
+  });
+}
+
+// Take the picked nodes and groups off the off side. They are then no longer
+// part of the switch, and are not moved to the other side.
+export function removeOffMembers(settings, id, picked) {
+  const drop = pickedIds(picked);
+  const nodes = new Set(drop.nodes.map(String));
+  const groups = new Set(drop.groups.map(String));
+  return changeSwitch(settings, id, (entry) => ({
+    nodes_off: (entry.nodes_off ?? []).filter((member) => !nodes.has(String(member))),
+    groups_off: (entry.groups_off ?? []).filter((member) => !groups.has(String(member))),
+  }));
+}
+
+function withoutKeys(sides, drop) {
+  return Object.fromEntries(Object.entries(sides ?? {}).filter(([id]) => !drop.has(id)));
+}
+
+// Taking a node out also forgets the values the switch saved for it, and
+// takes it off the off side as well.
+export function removeMembers(settings, id, picked) {
+  const drop = pickedIds(picked);
+  const nodes = new Set(drop.nodes.map(String));
+  const groups = new Set(drop.groups.map(String));
+  return changeSwitch(settings, id, (entry) => ({
+    nodes: entry.nodes.filter((member) => !nodes.has(String(member))),
+    groups: entry.groups.filter((member) => !groups.has(String(member))),
+    nodes_off: (entry.nodes_off ?? []).filter((member) => !nodes.has(String(member))),
+    groups_off: (entry.groups_off ?? []).filter((member) => !groups.has(String(member))),
+    on: withoutKeys(entry.on, nodes),
+    off: withoutKeys(entry.off, nodes),
+  }));
+}
+
+// How many of the picked nodes and groups a switch already holds, to turn
+// off or to change the settings of. The off side is counted by offHeldCount.
+export function heldCount(entry, picked) {
+  const want = pickedIds(picked);
+  const nodes = new Set([...(entry?.nodes ?? []).map(String), ...Object.keys(entry?.on ?? {}), ...Object.keys(entry?.off ?? {})]);
+  const groups = new Set((entry?.groups ?? []).map(String));
+  return want.nodes.filter((id) => nodes.has(String(id))).length + want.groups.filter((id) => groups.has(String(id))).length;
+}
+
+// How many of the picked nodes and groups are on the switch's off side.
+export function offHeldCount(entry, picked) {
+  const want = pickedIds(picked);
+  const nodes = new Set((entry?.nodes_off ?? []).map(String));
+  const groups = new Set((entry?.groups_off ?? []).map(String));
+  return want.nodes.filter((id) => nodes.has(String(id))).length + want.groups.filter((id) => groups.has(String(id))).length;
+}
+
+// How many of the picked nodes and groups could still go on the off side:
+// not there already, and not a node whose settings the switch changes.
+export function offFreshCount(entry, picked) {
+  const want = pickedIds(picked);
+  const nodes = new Set([...(entry?.nodes_off ?? []).map(String), ...Object.keys(entry?.on ?? {}), ...Object.keys(entry?.off ?? {})]);
+  const groups = new Set((entry?.groups_off ?? []).map(String));
+  return want.nodes.filter((id) => !nodes.has(String(id))).length + want.groups.filter((id) => !groups.has(String(id))).length;
+}
+
+// Save what the picked nodes hold right now as one side of a switch ("on"
+// or "off"). `snapshots` is [{ id, values }], values from snapshotNode. From
+// then on the switch changes those nodes' settings and no longer turns them
+// off.
+export function saveValues(settings, id, side, snapshots) {
+  if (side !== "on" && side !== "off") return normalizeSettings(settings);
+  const saved = {};
+  for (const item of snapshots ?? []) {
+    const [nodeId] = cleanIds([item?.id]);
+    if (nodeId === undefined) continue;
+    saved[String(nodeId)] = item.values;
+  }
+  const ids = new Set(Object.keys(saved));
+  return changeSwitch(settings, id, (entry) => ({
+    nodes: entry.nodes.filter((member) => !ids.has(String(member))),
+    nodes_off: (entry.nodes_off ?? []).filter((member) => !ids.has(String(member))),
+    [side]: cleanSnapshots({ ...entry[side], ...saved }),
+  }));
+}
+
+// ---------- after a paste ----------
+
+// A pasted card's switches, pointed at the pasted copies of their parts.
+// `nodes` and `groups` map an old id (as text) to its copy's id
+// (js/shared/paste_ids.mjs). An id the paste did not copy is kept, so a card
+// pasted on its own still switches the parts it switched before. Returns
+// null when no id changes.
+export function repointSwitches(raw, nodes, groups) {
+  const settings = normalizeSettings(raw);
+  let changed = false;
+  const follow = (map) => (id) => {
+    const copy = map?.get(String(id));
+    if (copy === undefined || copy === null) return id;
+    changed = true;
+    return copy;
+  };
+  const node = follow(nodes);
+  const group = follow(groups);
+  const side = (values) => Object.fromEntries(Object.entries(values).map(([id, held]) => [String(node(id)), held]));
+  const switches = settings.switches.map((entry) => ({
+    ...entry,
+    nodes: entry.nodes.map(node),
+    groups: entry.groups.map(group),
+    ...(entry.nodes_off ? { nodes_off: entry.nodes_off.map(node) } : {}),
+    ...(entry.groups_off ? { groups_off: entry.groups_off.map(group) } : {}),
+    on: side(entry.on),
+    off: side(entry.off),
+  }));
+  return changed ? normalizeSettings({ ...settings, switches }) : null;
+}
+
+// ---------- change detection ----------
+
+// Everything the card draws, as one string: when it matches the last one,
+// the redraw that asked has nothing to update.
+export function rowsSignature(rows, settings, keyOf = (row) => row.title) {
+  return JSON.stringify([
+    settings,
+    rows.map((row) => [
+      row.kind, keyOf(row), row.title, row.color, row.state, row.on, row.total, row.members?.length ?? 0, row.gone ?? 0,
+      row.pairs?.length ?? 0, row.half ?? false, row.offMembers?.length ?? 0,
+    ]),
+  ]);
+}

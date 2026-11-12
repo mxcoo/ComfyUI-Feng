@@ -1,0 +1,152 @@
+{
+ "batch": 1,
+ "messages": [
+  {
+   "text": "The picture is too large."
+  },
+  {
+   "text": "Frame Interpolate needs source and target fps above zero."
+  },
+  {
+   "text": "Frame Interpolate received an empty IMAGE batch."
+  },
+  {
+   "text": "Krea 2 reference expected a BHWC IMAGE batch."
+  },
+  {
+   "text": "Math Expression is nested too deeply."
+  },
+  {
+   "text": "Request body must be a JSON object."
+  },
+  {
+   "text": "Stitch Inpaint needs a stitcher from Crop For Inpaint, Load Image + Pad or a Crop + Rotate + Pad node."
+  },
+  {
+   "text": "The selected file does not contain a video stream."
+  },
+  {
+   "text": "This LoRA already has a preview picture."
+  },
+  {
+   "text": "Transform: source contained no decodable frames."
+  },
+  {
+   "text": "force_rate must be finite and between 0 and 1000 fps."
+  },
+  {
+   "text": "Align Image expected a BHWC IMAGE batch."
+  },
+  {
+   "text": "An element on the bboxes input has a 'bbox' that is not four numbers. It needs [ymin, xmin, ymax, xmax] on a 0 to 1000 grid."
+  },
+  {
+   "text": "An element on the bboxes input has no usable 'bbox'. It needs four numbers: [ymin, xmin, ymax, xmax] on a 0 to 1000 grid."
+  },
+  {
+   "text": "Choose a video file with a supported extension and a plain filename."
+  },
+  {
+   "text": "Civitai response is too large."
+  },
+  {
+   "text": "Civitai response must be a JSON object."
+  },
+  {
+   "text": "Color Match expected a BHW MASK."
+  },
+  {
+   "text": "Color Match expected a BHWC IMAGE batch."
+  },
+  {
+   "text": "Color Match expected a BHWC reference IMAGE."
+  },
+  {
+   "text": "Color Match needs a reference image connected, or reference_mode: first_frame to match against the batch's own first frame."
+  },
+  {
+   "text": "ComfyUI's temp folder is not there"
+  },
+  {
+   "text": "Edit Lock Restore: edit_lock needs the output of Edit Lock."
+  },
+  {
+   "text": "Edit Lock Restore: image must be an IMAGE batch."
+  },
+  {
+   "text": "Edit Lock: image must be an IMAGE batch."
+  },
+  {
+   "text": "Fixed frames must be between 0 and 100000."
+  },
+  {
+   "text": "Fixed frames requires a known source frame rate and duration."
+  },
+  {
+   "text": "Frame Interpolate expected frames in BHWC format."
+  },
+  {
+   "text": "Frame Interpolate received non-finite frame values."
+  },
+  {
+   "text": "Frame Interpolate requires RGB frames."
+  },
+  {
+   "text": "Frame Interpolate's optical flow method needs torchvision, which is not available in this Python environment. Switch the method to 'blend', or install torchvision matching your torch build."
+  },
+  {
+   "text": "Frame bounds require a known source frame rate."
+  },
+  {
+   "text": "Image Compare: a stroke must be an object."
+  },
+  {
+   "text": "Image Compare: a stroke needs a path of x, y pairs."
+  },
+  {
+   "text": "Image Compare: the previews are not in ComfyUI's temp folder. Run the workflow again."
+  },
+  {
+   "text": "Image Compare: the strokes must be a list."
+  },
+  {
+   "text": "Image Compare: the top picture is A or B."
+  },
+  {
+   "text": "Image Folder needs ComfyUI's folders."
+  },
+  {
+   "text": "Image Resize cannot resample to a zero-sized output."
+  },
+  {
+   "text": "Image Resize expected a BHW MASK."
+  },
+  {
+   "text": "Image Resize expected a BHWC IMAGE batch."
+  },
+  {
+   "text": "Image Resize expected a BHWC batch to resample."
+  },
+  {
+   "text": "Image Resize needs a source larger than 0x0."
+  },
+  {
+   "text": "Image Resize needs source and target sizes above zero."
+  },
+  {
+   "text": "Image Size expected a BHWC IMAGE batch."
+  },
+  {
+   "text": "Image source contains frames with inconsistent dimensions."
+  },
+  {
+   "text": "Invalid workflow resolutions. Edit the list in Latent Size settings."
+  },
+  {
+   "text": "Krea 2 reference mask expected a MASK tensor."
+  },
+  {
+   "text": "Krea 2 reference mask expected an HW or BHW MASK."
+  }
+ ]
+}

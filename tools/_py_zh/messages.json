@@ -1,0 +1,1031 @@
+{
+ "messages": [
+  {
+   "text": "The picture is too large.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:751",
+    "ausboss/nodes/_lora_helpers.py:763",
+    "ausboss/nodes/_lora_helpers.py:869"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Frame Interpolate needs source and target fps above zero.",
+   "sites": [
+    "ausboss/nodes/_interpolate_helpers.py:80",
+    "ausboss/nodes/_interpolate_helpers.py:498"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Frame Interpolate received an empty IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_interpolate_helpers.py:76",
+    "ausboss/nodes/_interpolate_helpers.py:355"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Krea 2 reference expected a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_krea2_helpers.py:57",
+    "ausboss/nodes/_krea2_helpers.py:91"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Math Expression is nested too deeply.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:160",
+    "ausboss/nodes/_math_helpers.py:164"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Request body must be a JSON object.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:857",
+    "ausboss/nodes/_lora_helpers.py:883"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Stitch Inpaint needs a stitcher from Crop For Inpaint, Load Image + Pad or a Crop + Rotate + Pad node.",
+   "sites": [
+    "ausboss/nodes/_inpaint_crop_helpers.py:674",
+    "ausboss/nodes/_inpaint_crop_helpers.py:1059"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "The selected file does not contain a video stream.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:336",
+    "ausboss/nodes/_media_helpers.py:360"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "This LoRA already has a preview picture.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:754",
+    "ausboss/nodes/_lora_helpers.py:777"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Transform: source contained no decodable frames.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:401",
+    "ausboss/nodes/_transform_engine.py:479"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "force_rate must be finite and between 0 and 1000 fps.",
+   "sites": [
+    "ausboss/nodes/_video_load_helpers.py:158",
+    "ausboss/nodes/_video_load_helpers.py:233"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Align Image expected a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_align_helpers.py:144"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "An element on the bboxes input has a 'bbox' that is not four numbers. It needs [ymin, xmin, ymax, xmax] on a 0 to 1000 grid.",
+   "sites": [
+    "ausboss/nodes/_layout_boxes_helpers.py:274"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "An element on the bboxes input has no usable 'bbox'. It needs four numbers: [ymin, xmin, ymax, xmax] on a 0 to 1000 grid.",
+   "sites": [
+    "ausboss/nodes/_layout_boxes_helpers.py:267"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Choose a video file with a supported extension and a plain filename.",
+   "sites": [
+    "ausboss/nodes/_media_upload.py:17"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Civitai response is too large.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:723"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Civitai response must be a JSON object.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:721"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Color Match expected a BHW MASK.",
+   "sites": [
+    "ausboss/nodes/_color_helpers.py:341"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Color Match expected a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_color_helpers.py:318"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Color Match expected a BHWC reference IMAGE.",
+   "sites": [
+    "ausboss/nodes/_color_helpers.py:320"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Color Match needs a reference image connected, or reference_mode: first_frame to match against the batch's own first frame.",
+   "sites": [
+    "ausboss/nodes/node_color_match.py:143"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "ComfyUI's temp folder is not there",
+   "sites": [
+    "ausboss/nodes/node_mask_by_touch.py:1117"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Edit Lock Restore: edit_lock needs the output of Edit Lock.",
+   "sites": [
+    "ausboss/nodes/node_edit_lock.py:196"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Edit Lock Restore: image must be an IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/node_edit_lock.py:194"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Edit Lock: image must be an IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/node_edit_lock.py:122"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Fixed frames must be between 0 and 100000.",
+   "sites": [
+    "ausboss/nodes/node_video_crop_rotate_pad_clip.py:301"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Fixed frames requires a known source frame rate and duration.",
+   "sites": [
+    "ausboss/nodes/_video_load_helpers.py:155"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Frame Interpolate expected frames in BHWC format.",
+   "sites": [
+    "ausboss/nodes/_interpolate_helpers.py:353"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Frame Interpolate received non-finite frame values.",
+   "sites": [
+    "ausboss/nodes/_interpolate_helpers.py:359"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Frame Interpolate requires RGB frames.",
+   "sites": [
+    "ausboss/nodes/_interpolate_helpers.py:357"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Frame Interpolate's optical flow method needs torchvision, which is not available in this Python environment. Switch the method to 'blend', or install torchvision matching your torch build.",
+   "sites": [
+    "ausboss/nodes/_interpolate_helpers.py:220"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Frame bounds require a known source frame rate.",
+   "sites": [
+    "ausboss/nodes/_video_load_helpers.py:137"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Compare: a stroke must be an object.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:109"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Compare: a stroke needs a path of x, y pairs.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:112"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Compare: the previews are not in ComfyUI's temp folder. Run the workflow again.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:276"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Compare: the strokes must be a list.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:102"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Compare: the top picture is A or B.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:346"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Folder needs ComfyUI's folders.",
+   "sites": [
+    "ausboss/nodes/node_image_folder.py:47"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Resize cannot resample to a zero-sized output.",
+   "sites": [
+    "ausboss/nodes/_resize_helpers.py:233"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Resize expected a BHW MASK.",
+   "sites": [
+    "ausboss/nodes/_resize_helpers.py:304"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Resize expected a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_resize_helpers.py:275"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Resize expected a BHWC batch to resample.",
+   "sites": [
+    "ausboss/nodes/_resize_helpers.py:226"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Resize needs a source larger than 0x0.",
+   "sites": [
+    "ausboss/nodes/_resize_helpers.py:73"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Resize needs source and target sizes above zero.",
+   "sites": [
+    "ausboss/nodes/_resize_helpers.py:141"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image Size expected a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/node_image_size.py:51"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Image source contains frames with inconsistent dimensions.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:293"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Invalid workflow resolutions. Edit the list in Latent Size settings.",
+   "sites": [
+    "ausboss/nodes/node_resolution.py:65"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Krea 2 reference mask expected a MASK tensor.",
+   "sites": [
+    "ausboss/nodes/_krea2_helpers.py:93"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Krea 2 reference mask expected an HW or BHW MASK.",
+   "sites": [
+    "ausboss/nodes/_krea2_helpers.py:101"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "LaMa Inpaint expected images in BHWC format.",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:119"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "LaMa Inpaint expected masks in BHW format.",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:132"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "LaMa Inpaint needs one mask for the whole image batch or one mask per image.",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:135"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "LaMa Inpaint received non-finite image values.",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:123"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "LaMa Inpaint received non-finite mask values.",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:139"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "LaMa Inpaint requires at least one RGB image.",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:121"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Latent Size needs ComfyUI and PyTorch to make a latent.",
+   "sites": [
+    "ausboss/nodes/node_resolution.py:86"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Layout Boxes could not read its boxes: the saved layout is not valid JSON. Press Clear on the node and draw the boxes again.",
+   "sites": [
+    "ausboss/nodes/_layout_boxes_helpers.py:187"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Layout Boxes could not read its boxes: the saved layout should be {\"v\": 1, \"boxes\": [...]}. Press Clear on the node and draw the boxes again.",
+   "sites": [
+    "ausboss/nodes/_layout_boxes_helpers.py:194"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "LoRA stack must be a JSON list of rows.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:49"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Load Image + Pad: source_image must be a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/node_load_image_pad.py:58"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Mask Refine expected a BHW MASK.",
+   "sites": [
+    "ausboss/nodes/_mask_helpers.py:57"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Mask Refine expected guide_image as a BHWC RGB IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_mask_helpers.py:294"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Mask Refine needs one guide frame for the whole mask batch or one per mask.",
+   "sites": [
+    "ausboss/nodes/_mask_helpers.py:302"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Mask by Name expected the detector's masks as one N x H x W stack.",
+   "sites": [
+    "ausboss/nodes/_mask_by_name_helpers.py:83"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Math Expression cannot raise a negative number to a fractional power.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:35"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Math Expression divided by zero.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:166"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Math Expression does not allow attribute access.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:130"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Math Expression does not allow subscripts.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:132"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Math Expression expected the expression as text.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:144"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Math Expression produced a non-finite number (inf or nan).",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:170"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Math Expression produced a number too large to represent.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:168"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Math Expression received an empty expression.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:147"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Network source paths are not allowed.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:178"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "No picture was sent.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:749"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Padding expected a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_pad_helpers.py:45"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Pick a video from the node's Outputs list first.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:223"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Realign to Source: edited and source must be IMAGE batches.",
+   "sites": [
+    "ausboss/nodes/node_realign_to_source.py:160"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Realign to Source: empty_fill 'source' needs the source image.",
+   "sites": [
+    "ausboss/nodes/_realign_helpers.py:545"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Realign to Source: the stitcher input needs a stitcher from Load Image + Pad.",
+   "sites": [
+    "ausboss/nodes/node_realign_to_source.py:33"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Realign to Source: the stitcher's canvas is not an IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/node_realign_to_source.py:42"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Realign to Source: this stitcher does not say where the picture sits on its canvas; use the one from Load Image + Pad or Image Crop + Rotate + Pad.",
+   "sites": [
+    "ausboss/nodes/node_realign_to_source.py:37"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Remove \"keep the clip's clothes\" or the looks like line. This appearance hint replaces the whole look.",
+   "sites": [
+    "ausboss/nodes/_h3_prompt_helpers.py:335"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Image requires ComfyUI's folder_paths at runtime.",
+   "sites": [
+    "ausboss/nodes/node_save_image.py:350"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Image: JPEG XL needs the optional pillow-jxl-plugin (add the pillow-jxl-plugin package to ComfyUI's python).",
+   "sites": [
+    "ausboss/nodes/_image_save_helpers.py:317"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Image: that is not a run it is holding.",
+   "sites": [
+    "ausboss/nodes/_image_hold_helpers.py:120"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Image: that picture is not in this run.",
+   "sites": [
+    "ausboss/nodes/_image_hold_helpers.py:135"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Image: the file already exists and on_existing is 'error'.",
+   "sites": [
+    "ausboss/nodes/_image_save_helpers.py:259"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Image: the linked filename is empty. Feed it a name or unlink it to compose the name here.",
+   "sites": [
+    "ausboss/nodes/node_save_image.py:372"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Video expected a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_video_save_helpers.py:300"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Video needs an fps greater than zero.",
+   "sites": [
+    "ausboss/nodes/_video_save_helpers.py:122"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Video requires ComfyUI's folder_paths at runtime.",
+   "sites": [
+    "ausboss/nodes/node_save_video.py:208"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Video's video input expects a ComfyUI core VIDEO object.",
+   "sites": [
+    "ausboss/nodes/_video_save_helpers.py:160"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Video: connect either a frames batch or a video to encode.",
+   "sites": [
+    "ausboss/nodes/node_save_video.py:228"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save Video: the connected video carries no frames.",
+   "sites": [
+    "ausboss/nodes/_video_save_helpers.py:164"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Save destination must stay inside ComfyUI's output folder.",
+   "sites": [
+    "ausboss/nodes/_image_save_helpers.py:133"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Select Every Nth needs an nth of at least 1.",
+   "sites": [
+    "ausboss/nodes/_batch_helpers.py:51"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Select Every Nth needs an offset of 0 or more.",
+   "sites": [
+    "ausboss/nodes/_batch_helpers.py:53"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Select Frame expected a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_batch_helpers.py:25"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Select Frame received an empty IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_batch_helpers.py:28"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Select or upload a source file first.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:176"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "SimpleWatermarkRemover compatibility supports only LAMA.",
+   "sites": [
+    "ausboss/nodes/node_lama_inpaint.py:138"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Source files are read only inside ComfyUI's input, output and temp folders.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:180"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Text Lines has no lines to run. Type at least one line, or check the node that writes its text.",
+   "sites": [
+    "ausboss/nodes/node_text_lines.py:88"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "That Civitai answer has no model information.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:729"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "That Civitai answer is for a different file.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:726"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "That is not a picture.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:771"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "The bboxes input needs a box (x, y, width, height) or a prompt element (with a 'bbox').",
+   "sites": [
+    "ausboss/nodes/_layout_boxes_helpers.py:317"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "The bboxes input needs boxes (x, y, width, height) or prompt elements (with a 'bbox').",
+   "sites": [
+    "ausboss/nodes/_layout_boxes_helpers.py:335"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "The requested video frame could not be decoded.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:441"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "The selected LaMa model did not return a BCHW RGB image batch.",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:201"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "The selected LaMa model returned an unsupported output.",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:166"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "The selected image contains no decodable frames.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:298"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "The source did not decode enough frames for Fixed frames. Reduce the requested length.",
+   "sites": [
+    "ausboss/nodes/node_video_crop_rotate_pad_clip.py:319"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "The uploaded file does not contain a video stream.",
+   "sites": [
+    "ausboss/nodes/_media_upload.py:36"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "These layers are too large for a PSD file.",
+   "sites": [
+    "ausboss/nodes/_psd_helpers.py:128"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Tiled Upscale Stitch needs the stitcher from Tiled Upscale 🆎.",
+   "sites": [
+    "ausboss/nodes/node_tiled_upscale.py:349"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Tiled Upscale needs a picture larger than 0x0.",
+   "sites": [
+    "ausboss/nodes/_tile_helpers.py:118"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Tiled Upscale needs a tile size above 0 megapixels.",
+   "sites": [
+    "ausboss/nodes/_tile_helpers.py:123"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Too many uploads share this filename; rename the video and retry.",
+   "sites": [
+    "ausboss/nodes/_media_upload.py:30"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Torchvision did not publish a RAFT checkpoint URL.",
+   "sites": [
+    "ausboss/nodes/_interpolate_helpers.py:191"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Transform: crop aspect ratio values must be positive.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:123"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Transform: input 'crop_aspect_ratio' expected free, source, or W:H.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:120"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Transform: input 'source_mask' expected BHW matching the image batch.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:426"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Transform: requested crop and padding exceed the 65536-pixel output limit.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:240"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Transform: source image must contain at least one pixel.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:131"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Upload a video in the image form field.",
+   "sites": [
+    "ausboss/nodes/_media_upload.py:43"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Video seek mode must be 'frame index' or 'time seconds'.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:608"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "Video source mode must be 'input folder' or 'local path'.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:196"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "[AusBoss] Frame Interpolate could not load %s: %s",
+   "sites": [
+    "ausboss/nodes/_interpolate_helpers.py:243"
+   ],
+   "kind": "log"
+  },
+  {
+   "text": "[AusBoss] Frame Interpolate expects the RAFT-small checkpoint at %s",
+   "sites": [
+    "ausboss/nodes/_interpolate_helpers.py:229"
+   ],
+   "kind": "log"
+  },
+  {
+   "text": "[AusBoss] Image Compare: Align did not work.",
+   "sites": [
+    "ausboss/nodes/node_compare.py:116"
+   ],
+   "kind": "log"
+  },
+  {
+   "text": "[AusBoss] Image Compare: Align left B as it is: %s",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:262"
+   ],
+   "kind": "log"
+  },
+  {
+   "text": "[AusBoss] Image Compare: the mix could not be saved.",
+   "sites": [
+    "ausboss/nodes/node_compare.py:88"
+   ],
+   "kind": "log"
+  },
+  {
+   "text": "[AusBoss] LaMa Inpaint refused %s, SHA-256 %s",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:86"
+   ],
+   "kind": "log"
+  },
+  {
+   "text": "[AusBoss] Load Video: this ComfyUI core cannot trim VIDEO objects; the video output is None.",
+   "sites": [
+    "ausboss/nodes/_video_load_helpers.py:371"
+   ],
+   "kind": "log"
+  },
+  {
+   "text": "[AusBoss] Mask by Name: SAM 3 unloaded from VRAM.",
+   "sites": [
+    "ausboss/nodes/node_mask_by_name.py:261"
+   ],
+   "kind": "log"
+  },
+  {
+   "text": "[AusBoss] Mask by Touch: SAM 3 unloaded from VRAM.",
+   "sites": [
+    "ausboss/nodes/node_mask_by_touch.py:1237"
+   ],
+   "kind": "log"
+  },
+  {
+   "text": "folder_paths is unavailable outside ComfyUI.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:138"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "frame_tensor_to_pil expected one HWC RGB frame.",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:110"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "no storyboard frames decoded",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:708"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "target_hw is required for a registered reference.",
+   "sites": [
+    "ausboss/nodes/_krea2_core.py:67"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "the background-removal model's answer is not one mask the size of the picture",
+   "sites": [
+    "ausboss/nodes/_fine_edge_helpers.py:218"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "the detector's answer does not add up to one mask for each match",
+   "sites": [
+    "ausboss/nodes/node_mask_by_touch.py:539"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "the detector's answer is not one mask the size of the picture",
+   "sites": [
+    "ausboss/nodes/node_mask_by_touch.py:525"
+   ],
+   "kind": "raise"
+  },
+  {
+   "text": "words must be a list.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:888"
+   ],
+   "kind": "raise"
+  }
+ ]
+}

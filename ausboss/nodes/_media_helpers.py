@@ -1,0 +1,946 @@
+"""Safe image/video loading and preview routes for AusBoss transform nodes."""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+from collections import OrderedDict
+from io import BytesIO
+import itertools
+import math
+import os
+from pathlib import Path
+import threading
+import time
+
+import av
+from PIL import Image, ImageOps, ImageSequence
+
+from ._route_errors import safe_route_error
+
+try:
+    import folder_paths
+except ImportError:  # Offline tests import this module without ComfyUI.
+    folder_paths = None
+
+
+# The video nodes' second source ("local path" in saved workflows, Outputs on
+# the node) reads a video in place, picked from a list. It is named the way
+# ComfyUI names a file in one of its folders: "clip.mp4" in the input folder,
+# "clip.mp4 [output]", "clip.mp4 [temp]". It never takes a whole path, for
+# queued runs and the preview routes alike: a widget value arrives through
+# the unauthenticated /prompt route, and the previews answer any HTTP client
+# that can reach the server.
+SERVER_FILE_RULE = (
+    "Pick the video from the node's Uploads or Outputs list. A whole path is not read; "
+    "a video is named the way ComfyUI names it, such as clip.mp4 [output]."
+)
+# The loaders' own source (Load Image + Pad, Image Crop + Rotate + Pad, Load
+# Video) takes the names core Load Image takes: a file in the input folder,
+# or one ComfyUI made, "photo.png [output]" or "photo.png [temp]".
+INPUT_FILE_RULE = (
+    "Pick the file from the node's list or upload it. A whole path is not read; "
+    "a file is named the way ComfyUI names it, such as photo.png or photo.png [output]."
+)
+_SERVER_FOLDERS = {
+    "input": "get_input_directory",
+    "output": "get_output_directory",
+    "temp": "get_temp_directory",
+}
+# The Outputs list shows this many, newest first.
+OUTPUT_LIST_CAP = 2000
+
+IMAGE_EXTENSIONS = {
+    ".avif",
+    ".bmp",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
+VIDEO_EXTENSIONS = {
+    ".avi",
+    ".m2ts",
+    ".m4v",
+    ".mkv",
+    ".mov",
+    ".mp4",
+    ".mpeg",
+    ".mpg",
+    ".mts",
+    ".webm",
+}
+
+_INPUT_FILES_LOCK = threading.Lock()
+_INPUT_FILES_CACHE: tuple[str, int, float, list[str]] | None = None
+_INPUT_FILES_TTL = 5.0
+
+
+def clear_input_files_cache() -> None:
+    global _INPUT_FILES_CACHE
+    with _INPUT_FILES_LOCK:
+        _INPUT_FILES_CACHE = None
+
+
+def _scan_input_files(root: str) -> list[str]:
+    files: list[str] = []
+    resolved_root = None
+    stack: list[tuple[str, str]] = [(root, "")]
+    while stack:
+        folder, prefix = stack.pop()
+        try:
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if name.startswith("."):
+                        continue
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append((entry.path, f"{prefix}{name}/"))
+                        elif entry.is_file(follow_symlinks=False):
+                            files.append(f"{prefix}{name}")
+                        elif entry.is_symlink():
+                            if resolved_root is None:
+                                resolved_root = Path(root).resolve()
+                            target = Path(entry.path).resolve(strict=True)
+                            if target.is_relative_to(resolved_root) and target.is_file():
+                                files.append(f"{prefix}{name}")
+                    except (OSError, RuntimeError):  # A broken or looping link.
+                        continue
+        except OSError:
+            continue
+    files.sort(key=str.casefold)
+    return files
+
+
+def list_input_files(paths=None) -> list[str]:
+    """Every non-hidden regular file in ComfyUI's input folder, as a forward-slash
+    path below it, sorted case-insensitively. Shared across the input loaders so
+    /object_info walks the input tree once with os.scandir instead of per-file
+    stat calls on every node."""
+    global _INPUT_FILES_CACHE
+    if paths is None:
+        if folder_paths is None:
+            return []
+        input_dir = folder_paths.get_input_directory()
+    else:
+        input_dir = paths.get_input_directory()
+    root = os.path.normpath(str(input_dir))
+    try:
+        root_mtime = os.stat(root).st_mtime_ns
+    except OSError:
+        return []
+    now = time.monotonic()
+    with _INPUT_FILES_LOCK:
+        cached = _INPUT_FILES_CACHE
+        if (
+            cached is not None
+            and cached[0] == root
+            and cached[1] == root_mtime
+            and (now - cached[2]) < _INPUT_FILES_TTL
+        ):
+            return list(cached[3])
+    files = _scan_input_files(root)
+    with _INPUT_FILES_LOCK:
+        _INPUT_FILES_CACHE = (root, root_mtime, time.monotonic(), files)
+    return list(files)
+
+
+def list_input_images() -> list[str]:
+    if folder_paths is None:
+        return [""]
+    files = list_input_files()
+    try:
+        results = list(folder_paths.filter_files_content_types(files, ["image"]))
+    except Exception:
+        results = [name for name in files if Path(name).suffix.lower() in IMAGE_EXTENSIONS]
+    return results or [""]
+
+
+def list_input_videos() -> list[str]:
+    if folder_paths is None:
+        return [""]
+    results = [
+        name
+        for name in list_input_files()
+        if Path(name).suffix.lower() in VIDEO_EXTENSIONS
+    ]
+    return results or [""]
+
+
+def resolve_input_path(selection: str) -> Path:
+    if not selection:
+        raise ValueError("请先选择或上传源文件。")
+    if str(selection).replace("\\", "/").startswith("//"):
+        raise ValueError("不允许网络来源路径。")
+    if folder_paths is None:
+        raise ValueError("源文件只能从 ComfyUI 的 input、output 和 temp 文件夹读取。")
+    folder, inside, path = _locate_comfy_file(str(selection).replace("\\", "/"), INPUT_FILE_RULE)
+    if not path.is_file():
+        raise ValueError(
+            f"This file is no longer in ComfyUI's {folder} folder: {inside}. "
+            "Pick it again from the node's list or upload it."
+        )
+    return path
+
+
+def resolve_video_path(source_mode: str, video: str, local_path: str) -> Path:
+    if source_mode == "local path":
+        path = resolve_server_file(local_path)
+    elif source_mode == "input folder":
+        path = resolve_input_path(video)
+    else:
+        raise ValueError("视频来源模式只能是 'input folder' 或 'local path'。")
+    if path.suffix.lower() not in VIDEO_EXTENSIONS:
+        raise ValueError(f"不支持的视频扩展名：{{path.suffix.lower() or '(none)'}}。")
+    return path
+
+
+def _server_folders() -> dict[str, Path]:
+    if folder_paths is None:
+        return {}
+    roots: dict[str, Path] = {}
+    for name, getter in _SERVER_FOLDERS.items():
+        try:
+            roots[name] = Path(getattr(folder_paths, getter)()).resolve()
+        except Exception:
+            continue
+    return roots
+
+
+def resolve_server_file(name: str) -> Path:
+    """The video the node's Outputs list picked: a name below ComfyUI's
+    input, output or temp folder, the folders core routes serve anyway,
+    written the way ComfyUI writes it ("sub/clip.mp4 [output]"; no tag means
+    the input folder). A whole path, a drive, "~", ".." and a network path
+    are refused from the text alone, before anything touches the disk. A
+    link that leads out of the folder is refused once the path is resolved."""
+    text = str(name or "").strip().strip('"').replace("\\", "/")
+    if not text:
+        raise ValueError("先在节点的 Outputs 列表里选一个视频。")
+    folder, inside, path = _locate_comfy_file(text, SERVER_FILE_RULE)
+    if not path.is_file():
+        raise ValueError(f"这个视频已经不在 ComfyUI 的 {{folder}} 目录里了：{{inside}}")
+    return path
+
+
+def _locate_comfy_file(text: str, rule: str) -> tuple[str, str, Path]:
+    """The folder, the name inside it and the resolved path for a name
+    written the way ComfyUI writes it, with forward slashes. Anything else
+    raises ``rule``: a whole path, "~", "." or ".." is refused from the text
+    alone, and a link that leads out of the folder once it is resolved."""
+    folder, inside = "input", text
+    for tag in _SERVER_FOLDERS:
+        tail = f" [{tag}]"
+        if text.endswith(tail):
+            folder, inside = tag, text[: -len(tail)].rstrip()
+    parts = inside.split("/")
+    if (
+        parts[0] == "~"
+        or any(part in ("", ".", "..") for part in parts)
+        or (os.name == "nt" and ":" in inside)
+    ):
+        raise ValueError(rule)
+    root = _server_folders().get(folder)
+    if root is None:
+        raise ValueError(rule)
+    path = root.joinpath(*parts).resolve()
+    if root not in path.parents:
+        raise ValueError(rule)
+    return folder, inside, path
+
+
+def list_output_media(extensions: set[str]) -> list[str]:
+    """The media in ComfyUI's output folder, newest first, each named the
+    way ComfyUI names a file there: "sub/clip.mp4 [output]". Hidden files and
+    folders and links are left out."""
+    root = _server_folders().get("output")
+    if root is None:
+        return []
+    found: list[tuple[float, str]] = []
+    for folder, folders, files in os.walk(root):  # does not follow links to folders
+        folders[:] = [name for name in folders if not name.startswith(".")]
+        for name in files:
+            if name.startswith(".") or Path(name).suffix.lower() not in extensions:
+                continue
+            path = Path(folder, name)
+            try:
+                if path.is_symlink():
+                    continue
+                found.append((path.stat().st_mtime, path.relative_to(root).as_posix()))
+            except OSError:
+                continue
+    found.sort(key=lambda item: (-item[0], item[1].casefold()))
+    return [f"{name} [output]" for _mtime, name in found[:OUTPUT_LIST_CAP]]
+
+
+def list_output_videos() -> list[str]:
+    return list_output_media(VIDEO_EXTENSIONS)
+
+
+def load_image_frames(path: Path) -> list[Image.Image]:
+    frames: list[Image.Image] = []
+    with Image.open(path) as source:
+        expected_size: tuple[int, int] | None = None
+        for frame in ImageSequence.Iterator(source):
+            converted = ImageOps.exif_transpose(frame).convert("RGBA")
+            if expected_size is None:
+                expected_size = converted.size
+            if converted.size != expected_size:
+                raise ValueError("图像源里的帧尺寸不一致。")
+            frames.append(converted.copy())
+            if source.format == "MPO":
+                break
+    if not frames:
+        raise ValueError("选中的图片不含可解码的帧。")
+    return frames
+
+
+# --- the video clock -----------------------------------------------------------
+# Trim windows, frame indices, durations and preview times all count seconds
+# from the video stream's first frame, so frame i sits at i / fps - how the
+# editors' timelines (js/shared/timeline_math.mjs) and the frame_index,
+# start_frame and end_frame widgets count. A file's own timestamps begin
+# wherever its muxer put them: about 1.4 s into an .mts/.m2ts, later after an
+# MP4/MOV edit list's delay. The container's start is no zero either, since
+# audio often opens a little ahead of the picture (a transport stream's
+# B-frame delay) and would push frame 0 to a later index. So a decoded time
+# passes through stream_seconds before it meets a window, and the seeks
+# (decode_from) go the other way with int(seconds / time_base) + start_time.
+
+
+def stream_origin(stream) -> float:
+    """The file's timestamp, in seconds, of the stream's first frame; 0 when
+    the container does not say."""
+    if stream.start_time is None or not stream.time_base:
+        return 0.0
+    return float(stream.start_time * stream.time_base)
+
+
+def stream_seconds(time: float | None, stream) -> float | None:
+    """A timestamp from the file (a decoded frame's ``frame.time``, from this
+    stream or a sibling such as the audio) as seconds since ``stream``'s first
+    frame. None, a frame without a timestamp, stays None."""
+    if time is None:
+        return None
+    return float(time) - stream_origin(stream)
+
+
+def video_metadata(path: Path) -> dict[str, float | int | str]:
+    with av.open(str(path)) as container:
+        stream = next((candidate for candidate in container.streams if candidate.type == "video"), None)
+        if stream is None:
+            raise ValueError("选中的文件里没有视频流。")
+        fps = float(stream.average_rate or stream.base_rate or 0.0)
+        duration = float(stream.duration * stream.time_base) if stream.duration is not None else 0.0
+        if duration <= 0 and container.duration is not None:
+            # The container's span can open before the video (leading audio):
+            # the stream's own length runs from its first frame to the end.
+            end = (container.start_time or 0) + container.duration
+            duration = max(0.0, stream_seconds(end / av.time_base, stream))
+        frame_count = int(stream.frames or 0)
+        if frame_count <= 0 and duration > 0 and fps > 0:
+            frame_count = max(1, int(round(duration * fps)))
+        return {
+            "name": path.name,
+            "width": int(stream.codec_context.width or 0),
+            "height": int(stream.codec_context.height or 0),
+            "fps": fps,
+            "frame_count": frame_count,
+            "duration": duration,
+        }
+
+
+def _video_stream(container):
+    stream = next((candidate for candidate in container.streams if candidate.type == "video"), None)
+    if stream is None:
+        raise ValueError("选中的文件里没有视频流。")
+    return stream
+
+
+def _frame_position(frame, stream, fps: float, fallback_index: int) -> tuple[int, float]:
+    time_value = stream_seconds(frame.time, stream)
+    if time_value is not None:
+        index = int(round(time_value * fps)) if fps > 0 else fallback_index
+        return index, time_value
+    return fallback_index, (fallback_index / fps if fps > 0 else 0.0)
+
+
+def decode_from(container, stream, seconds: float, fps: float):
+    """Frames of ``stream`` decoded from at or before ``seconds`` on the video
+    clock: a keyframe seek, then the decoder's output as an iterator.
+
+    A transport stream seeks to whichever packet precedes the target, not to
+    a keyframe, and the decoder then drops everything up to the next keyframe
+    - past the target, or past the whole clip when it has one keyframe. When
+    the first frame out lands after the target, the seek is retried from a
+    second earlier, then twice as far back each time, and from the top last.
+    """
+    tolerance = 0.5 / fps if fps > 0 else 1e-4
+    back = 0.0
+    while True:
+        target = seconds - back
+        top = not target > 0
+        if top:
+            # Below every timestamp: the first packet, even when a seek to
+            # the stream's own start would land past its first keyframe.
+            offset = min(0, stream.start_time or 0)
+        else:
+            offset = int(target / stream.time_base) + (stream.start_time or 0)
+        container.seek(offset, stream=stream, backward=True, any_frame=False)
+        frames = container.decode(stream)
+        first = next(frames, None)
+        if first is None:
+            if top:
+                return iter(())
+        else:
+            moment = stream_seconds(first.time, stream)
+            if top or moment is None or moment <= seconds + tolerance:
+                return itertools.chain((first,), frames)
+        back = max(1.0, back * 2)
+
+
+def _decode_with_seek(path: Path, requested_time: float, fps: float):
+    """Keyframe-seek then decode forward. Returns None when the file has no
+    usable timestamps so the caller can fall back to a sequential scan."""
+    with av.open(str(path)) as container:
+        stream = _video_stream(container)
+        if not stream.time_base:
+            return None
+        try:
+            frames = decode_from(container, stream, requested_time, fps)
+        except Exception:
+            return None
+        tolerance = (0.5 / fps) if fps > 0 else 0.0
+        last = None
+        for frame in frames:
+            moment = stream_seconds(frame.time, stream)
+            if moment is None:
+                return None
+            last = frame
+            if moment + tolerance >= requested_time:
+                break
+        if last is None:
+            return None
+        index, time_value = _frame_position(last, stream, fps, 0)
+        return last.to_image().convert("RGBA"), index, time_value
+
+
+def _decode_sequential(path: Path, target_index: int, fps: float):
+    with av.open(str(path)) as container:
+        stream = _video_stream(container)
+        last = None
+        for index, frame in enumerate(container.decode(stream)):
+            last = (frame, index)
+            if index >= target_index:
+                break
+        if last is None:
+            raise ValueError("请求的视频帧解码失败。")
+        frame, index = last
+        position_index, position_time = _frame_position(frame, stream, fps, index)
+        return frame.to_image().convert("RGBA"), position_index, position_time
+
+
+# Metadata rarely changes while a user scrubs, but every frame request needs
+# fps/frame_count. Cache per (path, mtime, size) so scrubbing opens the
+# container once per request instead of twice. FIFO-evicted, tiny.
+_METADATA_CACHE: dict[tuple[str, int, int], dict] = {}
+_METADATA_CACHE_LIMIT = 32
+
+
+def cached_video_metadata(path: Path) -> dict[str, float | int | str]:
+    try:
+        stat = os.stat(path)
+        key = (str(path), stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        return video_metadata(path)
+    cached = _METADATA_CACHE.get(key)
+    if cached is None:
+        cached = video_metadata(path)
+        if len(_METADATA_CACHE) >= _METADATA_CACHE_LIMIT:
+            _METADATA_CACHE.pop(next(iter(_METADATA_CACHE)))
+        _METADATA_CACHE[key] = cached
+    return dict(cached)
+
+
+# --- persistent scrub sessions ----------------------------------------------
+# Opening a container per request costs a full probe of the file, and landing
+# mid-GOP costs a decode from the previous keyframe. A session keeps the
+# container and codec state alive between requests, so stepping or dragging
+# forward decodes only the frames in between. Keyed by file state; small LRU.
+
+_FORWARD_DECODE_GAP = 24
+_SESSION_LIMIT = 3
+_SESSION_IDLE_SECONDS = 60.0
+_SESSIONS: dict[tuple[str, int, int], "_ScrubSession"] = {}
+_SESSIONS_LOCK = threading.Lock()
+_reaper_started = False
+
+
+class _ScrubSession:
+    def __init__(self, path: Path):
+        self.container = av.open(str(path))
+        self.stream = _video_stream(self.container)
+        self.lock = threading.Lock()
+        self.last_index = -1  # -1 = position unknown, force a seek
+        # The frame at last_index. Asking for the same frame again (a scrub
+        # that settles on the frame it already showed) is answered from
+        # here; decoding "forward" to it would hand back the frame after.
+        self.last_frame = None
+        self.last_used = time.monotonic()
+
+    def close(self) -> None:
+        try:
+            self.container.close()
+        except Exception:
+            pass
+
+
+def _file_key(path: Path) -> tuple[str, int, int]:
+    stat = os.stat(path)
+    return (str(Path(path).resolve()), stat.st_mtime_ns, stat.st_size)
+
+
+def _start_reaper_locked() -> None:
+    """An open session keeps the video file locked on Windows, which would
+    block users from deleting or overwriting a clip they just scrubbed. The
+    reaper closes sessions left idle. Started once, under _SESSIONS_LOCK."""
+    global _reaper_started
+    if _reaper_started:
+        return
+    _reaper_started = True
+
+    def reap() -> None:
+        while True:
+            time.sleep(15.0)
+            now = time.monotonic()
+            with _SESSIONS_LOCK:
+                for key in [k for k, s in _SESSIONS.items() if now - s.last_used > _SESSION_IDLE_SECONDS]:
+                    _SESSIONS.pop(key).close()
+
+    threading.Thread(target=reap, daemon=True, name="ausboss-scrub-session-reaper").start()
+
+
+def close_scrub_sessions() -> None:
+    """Close every open scrub session (releases file handles immediately)."""
+    with _SESSIONS_LOCK:
+        for key in list(_SESSIONS):
+            _SESSIONS.pop(key).close()
+
+
+def _get_session(path: Path) -> "_ScrubSession":
+    key = _file_key(path)
+    with _SESSIONS_LOCK:
+        _start_reaper_locked()
+        session = _SESSIONS.get(key)
+        if session is None:
+            for stale in [other for other in _SESSIONS if other[0] == key[0] and other != key]:
+                _SESSIONS.pop(stale).close()
+            if len(_SESSIONS) >= _SESSION_LIMIT:
+                oldest = min(_SESSIONS, key=lambda item: _SESSIONS[item].last_used)
+                _SESSIONS.pop(oldest).close()
+            session = _ScrubSession(path)
+            _SESSIONS[key] = session
+        session.last_used = time.monotonic()
+        return session
+
+
+def _session_decode(path: Path, target_index: int, requested_time: float, fps: float):
+    """Decode via the persistent session. Returns None when the file lacks
+    usable timestamps so the caller can use the stateless fallbacks."""
+    session = _get_session(path)
+    with session.lock:
+        stream = session.stream
+        if session.last_index == target_index and session.last_frame is not None:
+            index, time_value = _frame_position(session.last_frame, stream, fps, target_index)
+            return session.last_frame.to_image().convert("RGBA"), index, time_value
+        forward = (
+            session.last_index >= 0
+            and 0 < target_index - session.last_index <= _FORWARD_DECODE_GAP
+        )
+        if forward:
+            frames = session.container.decode(stream)
+        else:
+            try:
+                frames = decode_from(session.container, stream, requested_time, fps)
+            except Exception:
+                session.last_index = -1
+                session.last_frame = None
+                return None
+        tolerance = (0.5 / fps) if fps > 0 else 0.0
+        last = None
+        for frame in frames:
+            moment = stream_seconds(frame.time, stream)
+            if moment is None:
+                session.last_index = -1
+                session.last_frame = None
+                return None
+            last = frame
+            session.last_index = int(round(moment * fps)) if fps > 0 else 0
+            session.last_frame = frame
+            if forward:
+                if session.last_index >= target_index:
+                    break
+            elif moment + tolerance >= requested_time:
+                break
+        if last is None:
+            session.last_index = -1  # exhausted decoder: next request re-seeks
+            session.last_frame = None
+            return None
+        index, time_value = _frame_position(last, stream, fps, target_index)
+        return last.to_image().convert("RGBA"), index, time_value
+
+
+def seek_target(metadata: dict, seek_mode: str, frame_index: int, frame_time: float) -> tuple[int, float]:
+    """The frame a preview request means, as (index, seconds), clamped to
+    the source."""
+    fps = float(metadata["fps"] or 0.0)
+    if seek_mode == "time seconds":
+        requested_time = max(0.0, float(frame_time))
+        target_index = int(round(requested_time * fps)) if fps > 0 else 0
+    elif seek_mode == "frame index":
+        target_index = max(0, int(frame_index))
+        requested_time = target_index / fps if fps > 0 else 0.0
+    else:
+        raise ValueError("视频跳转模式只能是 'frame index' 或 'time seconds'。")
+    frame_count = int(metadata["frame_count"] or 0)
+    if frame_count > 0 and target_index > frame_count - 1:
+        target_index = frame_count - 1
+        if fps > 0:
+            requested_time = target_index / fps
+    return target_index, requested_time
+
+
+def decode_video_frame(
+    path: Path, seek_mode: str, frame_index: int, frame_time: float
+) -> tuple[Image.Image, int, float]:
+    metadata = cached_video_metadata(path)
+    fps = float(metadata["fps"] or 0.0)
+    target_index, requested_time = seek_target(metadata, seek_mode, frame_index, frame_time)
+
+    # Fast path: persistent session (forward decode or keyframe seek without
+    # reopening the container). Stateless keyframe seek and the sequential
+    # scan remain as safety nets for files without usable timestamps.
+    if fps > 0:
+        try:
+            selected = _session_decode(path, target_index, requested_time, fps)
+        except Exception:
+            selected = None
+        if selected is not None:
+            return selected
+        if target_index > 0:
+            selected = _decode_with_seek(path, requested_time, fps)
+            if selected is not None:
+                return selected
+    return _decode_sequential(path, target_index, fps)
+
+
+# --- storyboard ---------------------------------------------------------------
+# A strip of keyframe thumbnails built once per file in a background thread.
+# The editor shows the nearest tile instantly while dragging (zero network),
+# then the exact decoded frame replaces it. Same pattern video sites use.
+
+_STORYBOARD_TILE_EDGE = 168
+_STORYBOARD_MAX_TILES = 96
+# Short clips decode once, front to back, taking a tile as each target time
+# goes by; longer ones seek to the keyframe before each target and decode
+# forward to it, giving up after this many frames so a sparse-keyframe file
+# still finishes in the background.
+_STORYBOARD_SEQUENTIAL_FRAMES = 3000
+_STORYBOARD_FORWARD_CAP = 150
+_STORYBOARDS: dict[tuple[str, int, int], dict] = {}
+_STORYBOARDS_LOCK = threading.Lock()
+
+
+def _build_storyboard(path: Path, key: tuple[str, int, int]) -> None:
+    try:
+        metadata = cached_video_metadata(path)
+        duration = float(metadata["duration"] or 0.0)
+        fps = float(metadata["fps"] or 0.0)
+        count = min(_STORYBOARD_MAX_TILES, max(12, math.ceil(duration * 2)))
+        targets = [duration * step / count if duration > 0 else 0.0 for step in range(count)]
+        tolerance = (0.5 / fps) if fps > 0 else 0.0
+        tiles: list[tuple[Image.Image, float]] = []
+
+        def take(frame, moment: float) -> None:
+            thumb = frame.to_image()
+            thumb.thumbnail((_STORYBOARD_TILE_EDGE, _STORYBOARD_TILE_EDGE))
+            # Two targets can resolve to one frame; keep each frame once.
+            if not tiles or moment > tiles[-1][1] + 1e-6:
+                tiles.append((thumb, moment))
+
+        with av.open(str(path)) as container:
+            stream = _video_stream(container)
+            if int(metadata["frame_count"] or 0) <= _STORYBOARD_SEQUENTIAL_FRAMES:
+                pending = list(targets)
+                for frame in container.decode(stream):
+                    moment = stream_seconds(frame.time, stream)
+                    if moment is None:
+                        break
+                    if pending and moment + tolerance >= pending[0]:
+                        take(frame, moment)
+                        while pending and moment + tolerance >= pending[0]:
+                            pending.pop(0)
+                    if not pending:
+                        break
+            else:
+                for position in targets:
+                    try:
+                        offset = int(position / stream.time_base) + (stream.start_time or 0)
+                        container.seek(offset, stream=stream, backward=True, any_frame=False)
+                    except Exception:
+                        continue
+                    frame = moment = None
+                    for decoded, candidate in enumerate(container.decode(stream)):
+                        reached = stream_seconds(candidate.time, stream)
+                        if reached is None:
+                            break
+                        frame, moment = candidate, reached
+                        if moment + tolerance >= position or decoded >= _STORYBOARD_FORWARD_CAP:
+                            break
+                    if frame is None:
+                        continue
+                    take(frame, moment)
+        if not tiles:
+            raise ValueError("未解码出任何分镜帧")
+        tile_width, tile_height = tiles[0][0].size
+        sprite = Image.new("RGB", (tile_width * len(tiles), tile_height), (12, 14, 16))
+        for column, (thumb, _) in enumerate(tiles):
+            sprite.paste(thumb, (column * tile_width, 0))
+        buffer = BytesIO()
+        sprite.save(buffer, format="JPEG", quality=70)
+        payload = {
+            "status": "ready",
+            "tile_width": tile_width,
+            "tile_height": tile_height,
+            "count": len(tiles),
+            "times": [moment for _, moment in tiles],
+            "fps": fps,
+            "sprite": "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii"),
+        }
+    except Exception:
+        payload = {"status": "failed"}
+    with _STORYBOARDS_LOCK:
+        _STORYBOARDS[key] = payload
+
+
+def storyboard_payload(path: Path) -> dict:
+    """Return the storyboard for the file, kicking off a background build on
+    first request. Callers poll until status flips to ready/failed."""
+    key = _file_key(path)
+    with _STORYBOARDS_LOCK:
+        existing = _STORYBOARDS.get(key)
+        if existing is not None:
+            return existing
+        for stale in [other for other in _STORYBOARDS if other[0] == key[0] and other != key]:
+            _STORYBOARDS.pop(stale)
+        if len(_STORYBOARDS) >= 8:
+            _STORYBOARDS.pop(next(iter(_STORYBOARDS)))
+        _STORYBOARDS[key] = {"status": "building"}
+    threading.Thread(target=_build_storyboard, args=(path, key), daemon=True).start()
+    return {"status": "building"}
+
+
+def preview_edge(max_width: int, max_height: int) -> int:
+    return max(64, min(2048, int(max(max_width, max_height))))
+
+
+# --- served-frame cache -------------------------------------------------------
+# Scrubbing back and forth over a region asks for the same frames again and
+# again; each is a decode from the previous keyframe. The encoded previews
+# that were served are kept in a small byte-bounded LRU keyed by file state,
+# frame and size, so a revisit costs nothing.
+
+_PREVIEW_CACHE: "OrderedDict[tuple, tuple[bytes, int, float]]" = OrderedDict()
+_PREVIEW_CACHE_LOCK = threading.Lock()
+_PREVIEW_CACHE_BYTES = 48 * 1024 * 1024
+_preview_cache_size = 0
+
+
+def clear_preview_cache() -> None:
+    global _preview_cache_size
+    with _PREVIEW_CACHE_LOCK:
+        _PREVIEW_CACHE.clear()
+        _preview_cache_size = 0
+
+
+def cached_preview(
+    path: Path, seek_mode: str, frame_index: int, frame_time: float, max_width: int, max_height: int
+) -> tuple[bytes, int, float]:
+    """The encoded preview for a frame request plus the decoded position,
+    from the cache when that frame was served at that size recently."""
+    global _preview_cache_size
+    edge = preview_edge(max_width, max_height)
+    target_index, _ = seek_target(cached_video_metadata(path), seek_mode, frame_index, frame_time)
+    key = (_file_key(path), target_index, edge)
+    with _PREVIEW_CACHE_LOCK:
+        hit = _PREVIEW_CACHE.get(key)
+        if hit is not None:
+            _PREVIEW_CACHE.move_to_end(key)
+            return hit
+    image, actual_index, actual_time = decode_video_frame(path, seek_mode, frame_index, frame_time)
+    entry = (encode_preview(image, edge, edge), actual_index, actual_time)
+    with _PREVIEW_CACHE_LOCK:
+        if key in _PREVIEW_CACHE:
+            _preview_cache_size -= len(_PREVIEW_CACHE.pop(key)[0])
+        _PREVIEW_CACHE[key] = entry
+        _preview_cache_size += len(entry[0])
+        while _preview_cache_size > _PREVIEW_CACHE_BYTES and len(_PREVIEW_CACHE) > 1:
+            _, evicted = _PREVIEW_CACHE.popitem(last=False)
+            _preview_cache_size -= len(evicted[0])
+    return entry
+
+
+def encode_preview(image: Image.Image, max_width: int, max_height: int) -> bytes:
+    maximum = preview_edge(max_width, max_height)
+    preview = image.convert("RGB")
+    preview.thumbnail((maximum, maximum), Image.Resampling.LANCZOS)
+    output = BytesIO()
+    # No optimize pass: it costs an extra encode per scrub frame for a few
+    # percent of size on an ephemeral, never-cached preview.
+    preview.save(output, format="JPEG", quality=88)
+    return output.getvalue()
+
+
+_PACK_VERSION = None
+
+
+def _pack_version() -> str:
+    """Pack version, read once; fail-soft.
+
+    上游读自己 pyproject.toml；并入 Feng 后本包没有那个文件，版本号改由
+    ausboss/_version.py 提供（前端的 cache_guard 拿它比 AUSBOSS_JS_VERSION）。
+    """
+    global _PACK_VERSION
+    if _PACK_VERSION is None:
+        try:
+            from .._version import PACK_VERSION
+
+            _PACK_VERSION = PACK_VERSION
+        except Exception:
+            _PACK_VERSION = "unknown"
+    return _PACK_VERSION
+
+
+def register_video_routes() -> None:
+    try:
+        from aiohttp import web
+        from server import PromptServer
+    except ImportError:
+        return
+    prompt_server = getattr(PromptServer, "instance", None)
+    if prompt_server is None or getattr(prompt_server, "_ausboss_transform_routes", False):
+        return
+    prompt_server._ausboss_transform_routes = True
+
+    @prompt_server.routes.post("/ausboss/transform/video/upload")
+    async def ausboss_video_upload(request):
+        from ._media_upload import stream_video_upload
+
+        try:
+            result = await stream_video_upload(
+                request, Path(folder_paths.get_input_directory()), VIDEO_EXTENSIONS
+            )
+            return web.json_response(result)
+        except Exception as exc:
+            return web.json_response({"error": _safe_route_error(exc)}, status=400)
+
+    # What the node's Outputs list shows. No parameters: it names the videos
+    # in the output folder and nothing else.
+    @prompt_server.routes.get("/ausboss/transform/video/outputs")
+    async def ausboss_video_outputs(request):
+        videos = await asyncio.get_running_loop().run_in_executor(None, list_output_videos)
+        return web.json_response({"videos": videos})
+
+    @prompt_server.routes.get("/ausboss/transform/image/outputs")
+    async def ausboss_image_outputs(request):
+        images = await asyncio.get_running_loop().run_in_executor(None, list_output_media, IMAGE_EXTENSIONS)
+        return web.json_response({"images": images})
+
+    def request_path(request) -> Path:
+        # resolve_video_path refuses a whole path from its text, before the
+        # disk is touched, so a denied request can not be used to probe which
+        # paths exist.
+        return resolve_video_path(
+            request.query.get("source_mode", "input folder"),
+            request.query.get("video", ""),
+            request.query.get("local_path", ""),
+        )
+
+    # Decodes run in worker threads: a blocking decode inside these async
+    # handlers would stall ComfyUI's entire web server (every route plus the
+    # frontend websocket) for the duration of the decode.
+
+    @prompt_server.routes.get("/ausboss/transform/video/metadata")
+    async def ausboss_video_metadata(request):
+        try:
+            path = request_path(request)
+            metadata = await asyncio.get_running_loop().run_in_executor(
+                None, cached_video_metadata, path
+            )
+            return web.json_response(metadata)
+        except Exception as exc:
+            return web.json_response({"error": _safe_route_error(exc)}, status=400)
+
+    @prompt_server.routes.get("/ausboss/transform/video/frame")
+    async def ausboss_video_frame(request):
+        try:
+            path = request_path(request)
+            seek_mode = request.query.get("seek_mode", "frame index")
+            frame_index = _query_int(request, "frame_index", 0)
+            frame_time = _query_float(request, "frame_time", 0.0)
+            max_width = _query_int(request, "max_width", 1600)
+            max_height = _query_int(request, "max_height", 1600)
+
+            body, actual_index, actual_time = await asyncio.get_running_loop().run_in_executor(
+                None, cached_preview, path, seek_mode, frame_index, frame_time, max_width, max_height
+            )
+            return web.Response(
+                body=body,
+                content_type="image/jpeg",
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-AusBoss-Frame-Index": str(actual_index),
+                    "X-AusBoss-Frame-Time": f"{actual_time:.6f}",
+                },
+            )
+        except Exception as exc:
+            return web.json_response({"error": _safe_route_error(exc)}, status=400)
+
+    @prompt_server.routes.get("/ausboss/transform/video/storyboard")
+    async def ausboss_video_storyboard(request):
+        try:
+            path = request_path(request)
+            payload = await asyncio.get_running_loop().run_in_executor(
+                None, storyboard_payload, path
+            )
+            return web.json_response(payload)
+        except Exception as exc:
+            return web.json_response({"error": _safe_route_error(exc)}, status=400)
+
+    # Lets the frontend detect a browser tab still running cached JavaScript
+    # from an older install of the pack.
+    @prompt_server.routes.get("/ausboss/pack_version")
+    async def ausboss_pack_version(request):
+        return web.json_response({"version": _pack_version()})
+
+
+def _safe_route_error(exc: Exception) -> str:
+    return safe_route_error(exc, "The media request failed.")
+
+
+def _query_int(request, name: str, default: int) -> int:
+    try:
+        return int(float(request.query.get(name, default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _query_float(request, name: str, default: float) -> float:
+    try:
+        return float(request.query.get(name, default))
+    except (TypeError, ValueError):
+        return default

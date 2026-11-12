@@ -1,0 +1,867 @@
+// The widget card: one compact DOM panel that stands in for a node's classic
+// canvas widgets - the full-width rounded rows with an arrow at each end.
+//
+// The widgets stay the single source of truth. Every row mirrors one hidden
+// standard widget (or a pair of them): numbers become the pack's scrub
+// control, short combos a segmented pill, long combos a select, booleans an
+// off | on pill, strings a text field, a multiline string a textarea, and a hex
+// string named like a color gets a swatch. Rows can depend on other values
+// (`when`) and sit behind a disclosure (`group`), so a node with a dozen
+// inputs shows the three that matter and keeps the rest one click away,
+// with their values untouched.
+//
+// Save/load, undo, API format and widget-to-input links all keep working
+// through the widgets: the card writes `widget.value`, runs the widget's own
+// callback, and re-reads everything on configure, on connection changes and
+// after any callback. A row whose widget is driven by a link dims out.
+//
+// Links still land on rows. The frontend draws a widget's input socket at
+// the widget's own `y` and only while it matters (a link is being dragged
+// or the socket is connected), so each hidden widget reports the y of the
+// row standing in for it: drag a link over the card and a socket appears on
+// every row that can take it, drop it on the row and the widget is driven
+// by the link, exactly as it was with the classic widget. One socket per
+// row, so a row never holds two linkable widgets: a pair either splits into
+// rows or declares `top: true`, which moves its widgets' sockets up among
+// the node's real inputs (the widget stays; its slot just stops being a
+// "widget input" and is laid out with the others), where a link greys the
+// field out like the classic converted input did.
+//
+// Pure decisions (which rows show, how tall the card is, how a number
+// scrubs, where a socket sits) live in widget_card_math.mjs for node:test;
+// this file is the DOM.
+import { chainCallback, keepDomWidgetWidthAuto, notifyAusbossChange } from "./index.mjs";
+import { keepKeyInField } from "./canvas_passthrough.mjs";
+import { createMediaPicker } from "./media_picker.mjs";
+import { ensureNodeMinHeight, fillNodeHeight, holdNodeMinWidth, nodeHeightAfterCardChange, pinVuePanelHeight } from "./panel_layout.mjs";
+import { makeScrubInput, quantizeScrubValue, stepDecimals } from "./scrub_input.mjs";
+import { CONTROL_HEIGHT, FONT_UI, RADIUS_CARD, RADIUS_CONTROL, RADIUS_XS, SELECT_CHEVRON, THEME as T } from "./theme.mjs";
+import { limitsLabel, narrowedRange } from "./wired_limits.mjs";
+import { hideWidget } from "./widget_visibility.mjs";
+import {
+  CARD_PADDING, GROUP_HEIGHT, ROW_GAP, ROW_HEIGHT, SECTION_HEIGHT, SLOT_OFFSET, UNIT_SLOT_WIDTH,
+  cardChangeRestore, cardHeight, choiceLabel, commitWidgetValue, comboValues, rowHeight, rowInLook, rowKind, rowMuted, rowTops, scrubSteps, socketWidgetY, visibleRows,
+  liftSocket, widgetTooltip,
+} from "./widget_card_math.mjs";
+
+export * from "./widget_card_math.mjs";
+
+const CSS_ID = "ausboss-widget-card-css";
+export const CARD_WIDGET = "ausboss_widget_card";
+// The frontend's DOM-widget wrapper eats this much of the declared height
+// in insets, so the widget declares content plus this and the card's rows
+// get exactly the room they were measured for.
+const WRAPPER_INSET = 16;
+// The wrapper's top inset: where the card's element starts below the
+// widget's layout y (DomWidgets: margin 10 per side).
+const WRAPPER_TOP = 10;
+
+const FONT = FONT_UI;
+// A boolean pill's state labels must fit half a control; longer text is a
+// tooltip, and the pill says on / off.
+const SWITCH_LABEL_MAX = 16;
+// The big look of a textarea row (the Text node's gear): large centred
+// letters in the Callout's teal, with its glow, in a field as wide as the card. Two lines fit the field at its
+// smallest; the side padding keeps the text clear of the gear in the
+// field's corner, and the same on the left keeps it centred on the card.
+const BIG_LOOK = "big";
+const BIG_FONT = 22;
+const BIG_LINE = 26;
+const BIG_PAD_Y = 4;
+const BIG_PAD_X = 30;
+// A number row in the big look (Integer and Float): one large centred number
+// between a step arrow on each side, in a field as wide as the card, with the
+// gear in its corner as on Text.
+const BIG_NUMBER_FONT = 30;
+
+export function ensureCardCss() {
+  if (document.getElementById(CSS_ID)) return;
+  const style = document.createElement("style");
+  style.id = CSS_ID;
+  style.textContent = `
+.ausboss-card{position:relative;box-sizing:border-box;width:100%;height:100%;display:flex;flex-direction:column;gap:${ROW_GAP}px;padding:${CARD_PADDING}px 8px;overflow:hidden;border:1px solid transparent;border-radius:${RADIUS_CARD}px;background:${T.card};font:12px/1.3 ${FONT};color:${T.inkSoft};pointer-events:none}
+.ausboss-card-row{display:grid;grid-template-columns:minmax(56px,30%) 1fr;align-items:center;gap:8px;height:${ROW_HEIGHT}px;flex:none;pointer-events:auto}
+.ausboss-card-row.hidden{display:none}
+.ausboss-card-row.linked{opacity:.5}
+.ausboss-card-row.linked .ausboss-card-control{pointer-events:none}
+.ausboss-card-row.muted .ausboss-card-control{opacity:.35;pointer-events:none}
+.ausboss-card-row.muted .ausboss-card-label{color:${T.faint}}
+.ausboss-card-range{margin-left:6px;color:${T.faint};font-size:10px;font-weight:600;letter-spacing:.02em;white-space:nowrap}
+.ausboss-card.has-corner .ausboss-card-control{margin-right:var(--ausboss-card-corner,0px)}
+.ausboss-card-corner{position:absolute;top:${CARD_PADDING}px;right:8px;height:${ROW_HEIGHT}px;display:flex;align-items:center;justify-content:flex-end;gap:5px;pointer-events:auto}
+.ausboss-card-gear{width:24px;height:24px;flex:none;display:grid;place-items:center;padding:0;border:1px solid transparent;border-radius:${RADIUS_CONTROL}px;background:${T.fill};color:${T.label};cursor:pointer}
+.ausboss-card-gear:hover{background:${T.fillHover};color:${T.inkHover}}
+.ausboss-card-chip{height:20px;flex:none;padding:0 9px;border:none;border-radius:999px;background:${T.brandSoft};color:${T.brandInk};font:600 10px/1 ${FONT};letter-spacing:.02em;font-variant-numeric:tabular-nums;white-space:nowrap;cursor:pointer}
+.ausboss-card-chip:hover{background:${T.brandSoftHover};color:${T.inkHover}}
+.ausboss-card-chip[hidden]{display:none}
+.ausboss-card-row.area{display:block}
+.ausboss-card-row.panel{display:block}
+.ausboss-card-row.area.grow{flex:1 1 auto;height:auto}
+.ausboss-card-label{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:${T.label};font-size:11px;user-select:none}
+.ausboss-card-control{display:flex;align-items:center;gap:6px;min-width:0;height:100%}
+.ausboss-card-field{display:flex;align-items:center;gap:6px;flex:1 1 0;min-width:0;height:100%}
+.ausboss-card-field.linked{opacity:.5;pointer-events:none}
+.ausboss-card .ausboss-scrub{height:${CONTROL_HEIGHT}px}
+.ausboss-card-field>.ausboss-scrub{flex:1 1 0;width:auto;min-width:0}
+.ausboss-card-field>.ausboss-scrub .ausboss-scrub-input{width:100%}
+.ausboss-card-sep{flex:none;color:${T.faint};font-size:11px}
+.ausboss-card-suffix{flex:none;color:${T.faint};font:600 10px ${FONT};letter-spacing:.1em;text-transform:uppercase;user-select:none}
+.ausboss-card-section{height:${SECTION_HEIGHT}px;flex:none;display:flex;align-items:flex-end;gap:8px;color:${T.faint};font:600 10px/1 ${FONT};letter-spacing:.1em;text-transform:uppercase;user-select:none}
+.ausboss-card-section::after{content:"";flex:1;height:1px;margin-bottom:4px;background:${T.rule}}
+.ausboss-card-section.hidden{display:none}
+.ausboss-card-group{height:${GROUP_HEIGHT}px;flex:none;display:flex;align-items:center;gap:6px;padding:0 4px;border:1px solid transparent;border-radius:${RADIUS_CONTROL}px;background:transparent;color:${T.faint};font:600 10px/1 ${FONT};letter-spacing:.1em;text-transform:uppercase;cursor:pointer;text-align:left;pointer-events:auto}
+.ausboss-card-group:hover{color:${T.inkHover}}
+.ausboss-card-group .glyph{display:inline-block;width:10px;transition:transform .12s}
+.ausboss-card-group.open .glyph{transform:rotate(90deg)}
+.ausboss-card-seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;width:100%;height:${ROW_HEIGHT}px;padding:2px;box-sizing:border-box;border:1px solid transparent;border-radius:${RADIUS_CONTROL}px;background:${T.fill}}
+.ausboss-card-seg button{min-width:0;border:none;border-radius:${RADIUS_XS}px;padding:0 2px;background:transparent;color:${T.label};font:600 11px/1 ${FONT};cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ausboss-card-seg button:hover{color:${T.inkHover}}
+.ausboss-card-seg button.on{background:${T.brand};color:${T.onBrand}}
+.ausboss-card-bool button.on:first-child{background:${T.switchOff};color:${T.ink}}
+.ausboss-card-select{width:100%;height:${ROW_HEIGHT}px;padding:0 24px 0 8px;box-sizing:border-box;border:1px solid transparent;border-radius:${RADIUS_CONTROL}px;background:${T.fill} ${SELECT_CHEVRON} no-repeat right 9px center;color:${T.ink};font:500 12px ${FONT};appearance:none;-webkit-appearance:none;cursor:pointer;overflow:hidden;text-overflow:ellipsis}
+.ausboss-card-select:hover{background-color:${T.fillHover}}
+.ausboss-card-select:focus-visible{outline:2px solid ${T.brand};outline-offset:1px}
+.ausboss-card-text{width:100%;height:${ROW_HEIGHT}px;padding:0 8px;box-sizing:border-box;border:1px solid transparent;border-radius:${RADIUS_CONTROL}px;background:${T.fill};color:${T.ink};font:12px ${FONT};min-width:0}
+.ausboss-card-text:focus{outline:none;border-color:${T.brand}}
+.ausboss-card-text::placeholder{color:${T.faint}}
+.ausboss-card-area{display:block;width:100%;height:100%;padding:5px 8px;box-sizing:border-box;border:1px solid transparent;border-radius:${RADIUS_CONTROL}px;background:${T.fill};color:${T.ink};font:12px/1.4 ${FONT};resize:none;overflow:auto;min-width:0}
+.ausboss-card-area:focus{outline:none;border-color:${T.brand}}
+.ausboss-card-area::placeholder{color:${T.faint}}
+.ausboss-card.look-big .ausboss-card-row.area .ausboss-card-field{position:relative;display:block;border:1px solid transparent;border-radius:${RADIUS_CONTROL}px;background:${T.fill};cursor:text}
+.ausboss-card.look-big .ausboss-card-row.area .ausboss-card-field:focus-within{border-color:${T.brand}}
+.ausboss-card.look-big .ausboss-card-area{position:absolute;left:0;right:0;top:0;bottom:0;margin:auto 0;max-height:100%;padding:${BIG_PAD_Y}px ${BIG_PAD_X}px;border:none;border-radius:5px;background:transparent;color:${T.brandGlow};text-shadow:0 0 .35em rgba(0,180,170,.55);font:600 ${BIG_FONT}px/${BIG_LINE}px ${FONT};text-align:center;scrollbar-width:thin;scrollbar-color:${T.fillHover} transparent}
+.ausboss-card.look-big .ausboss-card-area::placeholder{color:${T.faint};text-shadow:none}
+.ausboss-card.look-big .ausboss-card-row:not(.area){display:block}
+.ausboss-card.look-big .ausboss-card-row:not(.area) .ausboss-card-label{display:none}
+.ausboss-card.look-big .ausboss-card-row:not(.area) .ausboss-card-control{margin:0}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub{height:100%;justify-content:center;align-items:center;gap:4px;border-color:transparent;border-radius:${RADIUS_CONTROL}px;background:${T.fill}}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub:focus-within{border-color:${T.brand}}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub>.ausboss-scrub-input{order:1;flex:0 0 auto;width:auto;min-width:2ch;max-width:60%;field-sizing:content;color:${T.brandGlow};text-shadow:0 0 .35em rgba(0,180,170,.55);font:600 ${BIG_NUMBER_FONT}px ${FONT}}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub>.ausboss-scrub-unit{order:2}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub>.ausboss-scrub-unit:empty{display:none}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub>.ausboss-scrub-step{display:contents}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub>.ausboss-scrub-step>button{flex:none;width:30px;height:30px;border-radius:15px;color:${T.label}}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub>.ausboss-scrub-step>button:first-child{order:3}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub>.ausboss-scrub-step>button:last-child{order:0}
+.ausboss-card.look-big .ausboss-card-field>.ausboss-scrub>.ausboss-scrub-step>button>svg{transform:rotate(90deg) scale(1.6)}
+.ausboss-card.look-big .ausboss-card-corner{top:${CARD_PADDING + 4}px;right:12px;height:22px}
+.ausboss-card.look-big .ausboss-card-gear{width:22px;height:22px;border-color:transparent;background:transparent}
+.ausboss-card.look-big .ausboss-card-gear:hover{background:${T.fillHover}}
+.ausboss-card-swatch{flex:none;width:${ROW_HEIGHT}px;height:${ROW_HEIGHT}px;padding:0;border:1px solid transparent;border-radius:${RADIUS_CONTROL}px;background:${T.fill};cursor:pointer}
+.ausboss-card-swatch::-webkit-color-swatch-wrapper{padding:3px}
+.ausboss-card-swatch::-webkit-color-swatch{border:none;border-radius:3px}
+.ausboss-card-btn{flex:none;height:${ROW_HEIGHT}px;padding:0 10px;border:1px solid transparent;border-radius:${RADIUS_CONTROL}px;background:${T.fill};color:${T.inkSoft};font:600 11px/1 ${FONT};cursor:pointer;white-space:nowrap}
+.ausboss-card-btn:hover{background:${T.fillHover};color:${T.inkHover}}
+.ausboss-card-btn:focus-visible{outline:2px solid ${T.brand};outline-offset:1px}
+`;
+  document.head.append(style);
+}
+
+// ---------- DOM ----------
+
+function el(tag, className = "", text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function findWidget(node, name) {
+  return node.widgets?.find((widget) => widget.name === name) ?? null;
+}
+
+function widgetSlot(node, name) {
+  return node.inputs?.find((input) => input?.widget?.name === name || input?.name === name) ?? null;
+}
+
+function widgetLinked(node, name) {
+  const slot = widgetSlot(node, name);
+  return Boolean(slot && slot.link !== null && slot.link !== undefined);
+}
+
+function isFloatWidget(widget) {
+  const precision = widget?.options?.precision;
+  if (precision !== undefined) return Number(precision) > 0;
+  const step = widget?.options?.step2 ?? widget?.options?.round;
+  return step !== undefined ? !Number.isInteger(Number(step)) : !Number.isInteger(Number(widget?.value));
+}
+
+// Mount a card on `node`. Rows:
+//   { widget, label?, kind?, labels?, suffix?, title?, when?, group?, linkedBy?, snap?, pixels?, step?, limits?, trimZeros? }
+//                                          - `linkedBy` names other inputs
+//                                            whose link also dims the row
+//                                            (a wired source replacing a
+//                                            file picker); `snap` steps a
+//                                            number on multiples of its
+//                                            step (1, 8, 16, not 1, 9, 17);
+//                                            a whole number steps by 1
+//                                            unless the row is a pixel size
+//                                            (`suffix: "px"` or `pixels`),
+//                                            which steps by 8, or names
+//                                            its own `step`; `limits` is a
+//                                            function of the node that
+//                                            gives { min, max, step } from
+//                                            somewhere else (what a number
+//                                            box is wired to), or null;
+//                                            `trimZeros` drops the zeroes
+//                                            the steps never reach (1.00,
+//                                            not 1.000)
+//   { widget, kind: "textarea", placeholder?, height, grow?, looks? }
+//                                          - a multiline string; `grow` takes
+//                                            the node's spare height; `looks`
+//                                            holds the height and placeholder
+//                                            the row takes in another look
+//   { pair: [name, name, ...], label, sep?, when?, group?, suffix?, top? }
+//                                          - `top` lifts the widgets' sockets
+//                                            into the node's slot column
+//   { section: "Caption" }
+//   { panel: (node) => ({ element, sync(values) }), height }
+//                                          - the node's own display, on a row
+//                                            of the card
+//   { group: "advanced", label: "More" }   - a disclosure; later rows with
+//                                             group: "advanced" sit under it
+// A numeric row may have readOnlyText(node, values): nonempty text replaces
+// its control without changing its widget, socket, value or row height.
+// Rows may also carry `mute: (values) => boolean` and `muteTitle`: a muted
+// row stays in place but dims and stops taking input, with the title as its
+// hover hint (a setting the current mode does not use).
+// Options: minWidth (node floor), first (place the card ahead of the node's
+// other DOM widgets), hide (extra widgets to hide), corner (small tools in
+// the card's top-right corner, see below), look (a function of the node that
+// names the card's look, a display choice kept on the node; the card carries
+// it as a `look-<name>` class and rows take their `looks` entry for it).
+export function mountWidgetCard(node, { rows, minWidth = 300, first = false, hide = [], corner = null, look: lookOf = null } = {}) {
+  ensureCardCss();
+  const root = el("div", "ausboss-card");
+  const managed = [];
+  const state = { node, root, rows: [], groups: {}, height: 0, widget: null, rowTop: new Map(), rowSpan: new Map(), socketed: [], pickers: [], observers: [], look: "" };
+  node.__ausbossCard = state;
+
+  const values = () => Object.fromEntries((node.widgets ?? []).map((widget) => [widget.name, widget.value]));
+  const groupProperty = (name) => `ausboss_show_${name}`;
+  const groupOpen = (name) => Boolean(node.properties?.[groupProperty(name)]);
+  // What the person changes on the card itself. A row it brings in or takes
+  // out moves the node's height with it (nodeHeightAfterCardChange).
+  const byHand = (run) => {
+    state.byHand = true;
+    try { return run(); } finally { state.byHand = false; }
+  };
+  const setGroupOpen = (name, open) => {
+    node.properties ??= {};
+    node.properties[groupProperty(name)] = Boolean(open);
+    byHand(refresh);
+  };
+
+  const setWidget = (name, value, { settle = true } = {}) => {
+    const widget = findWidget(node, name);
+    if (!widget || widget.value === value) return;
+    byHand(() => commitWidgetValue(node, widget, value, globalThis.app?.canvas));
+    node.graph?.setDirtyCanvas?.(true, true);
+    if (settle) notifyAusbossChange();
+  };
+
+  // Every row keeps a `sync(values, linked)` that writes the widget's value
+  // into its control, so a refresh is one loop.
+  const buildScrub = (name, row, into) => {
+    const widget = findWidget(node, name);
+    const isFloat = isFloatWidget(widget);
+    const steps = scrubSteps(widget?.options, isFloat, row.pixels ?? row.suffix === "px");
+    // `trimZeros`: the box shows the decimals its arrow step reaches (at
+    // least one) and only goes past them for a value that uses more.
+    const shownDecimals = (step, held) => (row.trimZeros ? Math.min(held, Math.max(1, stepDecimals(step))) : null);
+    const control = makeScrubInput({
+      value: Number(widget?.value) || 0,
+      min: Number(widget?.options?.min ?? -Infinity),
+      max: Number(widget?.options?.max ?? Infinity),
+      step: row.step ?? steps.step,
+      fineStep: steps.fineStep,
+      decimals: row.decimals ?? steps.decimals,
+      minDecimals: shownDecimals(row.step ?? steps.step, row.decimals ?? steps.decimals),
+      title: row.title ?? widgetTooltip(node, name, widget),
+      unit: row.suffix ?? "",
+      // Single fields share one unit slot so their numbers line up down
+      // the card; the fields of a pair sit side by side and keep the room.
+      unitWidth: row.pair ? 0 : UNIT_SLOT_WIDTH,
+      snap: Boolean(row.snap),
+      onChange: (next) => setWidget(name, isFloat ? next : Math.round(next), { settle: false }),
+      onSettle: () => notifyAusbossChange(),
+    });
+    into.append(control.root);
+    // Display an unused setting honestly while keeping its saved value and socket.
+    const readOnly = row.readOnlyText ? el("span", "ausboss-card-readonly") : null;
+    if (readOnly) {
+      readOnly.title = row.readOnlyTitle ?? "";
+      readOnly.setAttribute("role", "status");
+      into.append(readOnly);
+    }
+    const syncReadOnly = (vals) => {
+      if (!readOnly) return;
+      const text = row.readOnlyText(node, vals) || "";
+      readOnly.textContent = text;
+      readOnly.style.display = text ? "" : "none";
+      control.root.style.display = text ? "none" : "";
+    };
+    if (typeof row.limits !== "function") return (vals) => { syncReadOnly(vals); control.set(Number(vals[name]) || 0); };
+    // Limits that come from somewhere else are read at every refresh: a wire
+    // made or cut changes them. The stored value follows the range, the way
+    // ComfyUI's own Primitive node follows the input it is wired to.
+    let shown = null;
+    const hint = el("span", "ausboss-card-range");
+    return (vals) => {
+      syncReadOnly(vals);
+      const outside = row.limits(node) ?? null;
+      const range = narrowedRange(widget?.options, outside);
+      const key = outside ? `${range.min}|${range.max}|${outside.step}` : "";
+      if (key !== shown) {
+        shown = key;
+        const next = scrubSteps({ ...widget?.options, ...range, ...(outside?.step ? { step2: outside.step, precision: undefined } : {}) }, isFloat, row.pixels ?? row.suffix === "px");
+        // A step finer than the box shows (0.0005 in a box of three decimals) gets the decimals it needs.
+        const decimals = row.decimals ?? steps.decimals;
+        const held = outside?.step ? Math.max(decimals, next.decimals) : decimals;
+        const step = row.step ?? next.step;
+        control.setRange({ ...range, step, fineStep: next.fineStep, decimals: held, minDecimals: shownDecimals(step, held) });
+        const label = into.closest(".ausboss-card-row")?.querySelector(".ausboss-card-label");
+        hint.textContent = limitsLabel(outside ? range : null);
+        hint.title = outside ? `连上的输入有哪些限制： ${outside.names.join(", ")}.` : "";
+        if (label && hint.parentNode !== label) label.append(hint);
+      }
+      const value = Number(vals[name]) || 0;
+      const held = quantizeScrubValue(value, { ...range, decimals: isFloat ? 6 : 0 });
+      if (outside && held !== value) queueMicrotask(() => setWidget(name, held, { settle: false }));
+      control.set(held);
+    };
+  };
+
+  const buildSegment = (name, row, into) => {
+    const widget = findWidget(node, name);
+    const seg = el("div", "ausboss-card-seg");
+    const buttons = new Map();
+    const add = (value, values) => {
+      const button = el("button", "", choiceLabel(row, value, values));
+      button.type = "button"; button.title = row.titles?.[value] ?? String(value);
+      button.addEventListener("click", () => setWidget(name, value));
+      seg.append(button); buttons.set(value, button);
+    };
+    const values = comboValues(widget);
+    for (const value of values) add(value, values);
+    into.append(seg);
+    return (vals) => {
+      // A value the list does not offer (a model file this machine does not
+      // have) still shows as what is chosen, as it does in a list.
+      const current = vals[name];
+      if (typeof current === "string" && current !== "" && !buttons.has(current)) add(current, comboValues(widget));
+      for (const [value, button] of buttons) button.classList.toggle("on", current === value);
+    };
+  };
+
+  const buildSelect = (name, row, into) => {
+    const widget = findWidget(node, name);
+    // A file source (`preview: { kind, url }`) gets the media picker: a list
+    // that previews the hovered file, which a native <select> cannot do.
+    if (row.preview) {
+      const noun = row.preview.kind === "video" ? "video" : "image";
+      const picker = createMediaPicker({
+        kind: noun,
+        className: "ausboss-card-select",
+        placeholder: row.preview.placeholder ?? `选择一个已上传的 ${noun}…`,
+        viewUrl: row.preview.url,
+        label: row.label,
+        getOptions: () => comboValues(widget),
+        getValue: () => widget?.value,
+        onChange: (value) => setWidget(name, value),
+      });
+      state.pickers.push(picker);
+      into.append(picker.element);
+      return (vals) => picker.refresh(vals[name]);
+    }
+    const select = el("select", "ausboss-card-select");
+    select.title = row.title ?? widgetTooltip(node, name, widget);
+    const fill = (current) => {
+      select.textContent = "";
+      const options = comboValues(widget);
+      const list = options.includes(current) || current === undefined || current === "" ? options : [...options, current];
+      for (const value of list) {
+        const option = el("option", "", choiceLabel(row, value, options)); option.value = String(value); select.append(option);
+      }
+      select.value = String(current ?? "");
+    };
+    select.addEventListener("change", () => setWidget(name, select.value));
+    into.append(select);
+    return (vals) => fill(vals[name]);
+  };
+
+  // A boolean is a two-segment pill, off on the left and on on the right,
+  // as wide as any other control on the card; the short `offText` /
+  // `onText` name the states ("off | embed workflow"), longer descriptions
+  // ride on the tooltip.
+  const buildSwitch = (name, row, into) => {
+    const widget = findWidget(node, name);
+    const seg = el("div", "ausboss-card-seg ausboss-card-bool");
+    seg.setAttribute("role", "radiogroup");
+    const label = (text, fallback) => (typeof text === "string" && text.length <= SWITCH_LABEL_MAX ? text : fallback);
+    const buttons = new Map();
+    for (const [value, text] of [[false, label(row.offText, "off")], [true, label(row.onText, "on")]]) {
+      const button = el("button", "", text);
+      button.type = "button";
+      button.title = row.title ?? (widgetTooltip(node, name, widget) || (value ? row.onText ?? "" : row.offText ?? ""));
+      button.addEventListener("click", () => setWidget(name, value));
+      seg.append(button); buttons.set(value, button);
+    }
+    into.append(seg);
+    return (vals) => {
+      const on = Boolean(vals[name]);
+      for (const [value, button] of buttons) {
+        button.classList.toggle("on", value === on);
+        button.setAttribute("aria-checked", String(value === on));
+      }
+    };
+  };
+
+  const buildText = (name, row, into) => {
+    const widget = findWidget(node, name);
+    const input = el("input", "ausboss-card-text");
+    input.type = "text"; input.placeholder = row.placeholder ?? ""; input.title = row.title ?? widgetTooltip(node, name, widget);
+    input.spellcheck = false;
+    const commit = () => { if (input.value !== String(findWidget(node, name)?.value ?? "")) setWidget(name, input.value); };
+    input.addEventListener("change", commit);
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (event) => {
+      keepKeyInField(event);
+      if (event.key === "Enter") input.blur();
+      if (event.key === "Escape") { input.value = String(findWidget(node, name)?.value ?? ""); input.blur(); }
+    });
+    into.append(input);
+    return (vals) => { if (document.activeElement !== input) input.value = String(vals[name] ?? ""); };
+  };
+
+  // A multiline string. The frontend's own textarea for the widget stays
+  // mounted (hidden) underneath, so dynamic prompts, serialization and the
+  // widget's input socket are all still its business; this box only edits
+  // the same value.
+  const buildTextarea = (name, row, into) => {
+    const widget = findWidget(node, name);
+    if (widget?.element) widget.element.style.display = "none";
+    const area = el("textarea", "ausboss-card-area");
+    area.placeholder = row.placeholder ?? row.label ?? name;
+    area.title = row.title ?? widgetTooltip(node, name, widget);
+    area.spellcheck = false;
+    let typing = false;
+    // In the big look the box is as tall as its text, up to the field's
+    // height, and sits in the middle of the field (out of flow, so the text
+    // never sizes the card in Nodes 2.0); past that it scrolls. While typing
+    // at the end, the end stays in view.
+    const fit = ({ toEnd = false } = {}) => {
+      if (state.look !== BIG_LOOK) {
+        if (area.style.height) area.style.height = "";
+        return;
+      }
+      const keep = area.scrollTop;
+      area.style.height = "0px";
+      area.style.height = `${area.scrollHeight}px`;
+      area.scrollTop = toEnd && area.selectionEnd === area.value.length ? area.scrollHeight : keep;
+    };
+    // The text wraps again when the node is made wider or narrower.
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(() => fit());
+      observer.observe(into);
+      state.observers.push(observer);
+    }
+    // The big field is all text box: a click above or below the words puts
+    // the caret at their end.
+    into.addEventListener("pointerdown", (event) => {
+      if (state.look !== BIG_LOOK || event.target !== into || event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      area.focus();
+      area.setSelectionRange(area.value.length, area.value.length);
+    });
+    area.addEventListener("input", () => { typing = true; setWidget(name, area.value, { settle: false }); typing = false; fit({ toEnd: true }); });
+    area.addEventListener("change", () => notifyAusbossChange());
+    area.addEventListener("keydown", (event) => {
+      // Ctrl + Up / Down goes on to ComfyUI, which changes the weight of the
+      // selected words; what it writes comes back through "input" above.
+      keepKeyInField(event, { weights: true });
+      if (event.key === "Escape") area.blur();
+    });
+    // The box scrolls its own overflow; the canvas only zooms once it is
+    // at an end.
+    area.addEventListener("wheel", (event) => {
+      const down = event.deltaY > 0;
+      const atEnd = down ? area.scrollTop + area.clientHeight >= area.scrollHeight - 1 : area.scrollTop <= 0;
+      if (!atEnd) event.stopPropagation();
+    }, { passive: true });
+    into.append(area);
+    return (vals) => {
+      if (!typing && document.activeElement !== area) area.value = String(vals[name] ?? "");
+      area.placeholder = rowInLook(row, state.look).placeholder ?? row.label ?? name;
+      fit();
+    };
+  };
+
+  const buildColor = (name, row, into) => {
+    const widget = findWidget(node, name);
+    const swatch = el("input", "ausboss-card-swatch"); swatch.type = "color";
+    swatch.title = "选颜色";
+    const input = el("input", "ausboss-card-text"); input.type = "text"; input.spellcheck = false;
+    input.title = row.title ?? widgetTooltip(node, name, widget);
+    const commit = () => { if (input.value !== String(findWidget(node, name)?.value ?? "")) setWidget(name, input.value.trim()); };
+    swatch.addEventListener("input", () => { input.value = swatch.value; setWidget(name, swatch.value, { settle: false }); });
+    swatch.addEventListener("change", () => notifyAusbossChange());
+    input.addEventListener("change", commit); input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (event) => { keepKeyInField(event); if (event.key === "Enter") input.blur(); });
+    into.append(swatch, input);
+    return (vals) => {
+      const text = String(vals[name] ?? "");
+      if (document.activeElement !== input) input.value = text;
+      if (/^#[0-9a-f]{6}$/i.test(text)) swatch.value = text.toLowerCase();
+    };
+  };
+
+  const buildButton = (row, into) => {
+    const button = el("button", "ausboss-card-btn", row.text ?? "Go");
+    button.type = "button"; button.title = row.title ?? "";
+    button.addEventListener("click", () => row.onClick?.(node, state));
+    into.append(button);
+  };
+
+  const builders = { scrub: buildScrub, segment: buildSegment, select: buildSelect, switch: buildSwitch, text: buildText, textarea: buildTextarea, color: buildColor };
+
+  for (const name of hide) { const widget = findWidget(node, name); if (widget) { hideWidget(widget); managed.push(name); } }
+  const topNames = new Set(rows.filter((row) => row.top).flatMap((row) => row.pair ?? (row.widget ? [row.widget] : [])));
+  for (const name of topNames) liftSocket(node, name);
+  let currentGroup = null;
+  for (const row of rows) {
+    if (row.section !== undefined) {
+      const caption = el("div", "ausboss-card-section", row.section);
+      state.rows.push({ row: { ...row, inGroup: currentGroup }, element: caption, syncs: [] });
+      root.append(caption); continue;
+    }
+    if (row.panel) {
+      const line = el("div", "ausboss-card-row panel");
+      line.style.height = `${rowHeight(row)}px`;
+      const panel = row.panel(node);
+      line.append(panel.element);
+      state.rows.push({ row, element: line, syncs: panel.sync ? [panel.sync] : [] });
+      root.append(line); continue;
+    }
+    if (row.group !== undefined && row.widget === undefined && row.pair === undefined) {
+      currentGroup = row.group;
+      const header = el("button", "ausboss-card-group");
+      header.type = "button"; header.title = row.title ?? "";
+      header.append(el("span", "glyph", "▸"), el("span", "", row.label ?? row.group));
+      header.addEventListener("click", () => setGroupOpen(row.group, !groupOpen(row.group)));
+      state.rows.push({ row, element: header, header: true, syncs: [] });
+      root.append(header); continue;
+    }
+    const names = row.pair ?? [row.widget];
+    for (const name of names) { const widget = findWidget(node, name); if (widget) { hideWidget(widget); managed.push(name); } }
+    const line = el("div", "ausboss-card-row");
+    const control = el("div", "ausboss-card-control");
+    const syncs = [];
+    const isArea = row.kind === "textarea";
+    if (isArea) {
+      line.classList.add("area");
+      if (row.grow) { line.classList.add("grow"); line.style.minHeight = `${rowHeight(row)}px`; }
+      else line.style.height = `${rowHeight(row)}px`;
+    } else {
+      const label = el("span", "ausboss-card-label", row.label ?? names[0]);
+      label.title = row.title ?? widgetTooltip(node, names[0], findWidget(node, names[0]));
+      line.append(label);
+    }
+    const fields = new Map();
+    names.forEach((name, index) => {
+      if (index > 0) control.append(el("span", "ausboss-card-sep", row.sep ?? "·"));
+      const widget = findWidget(node, name);
+      const kind = rowKind(row, widget);
+      if (kind === "skip" || !widget) return;
+      if (row.prefixes?.[index]) control.append(el("span", "ausboss-card-sep", row.prefixes[index]));
+      const field = el("div", "ausboss-card-field");
+      syncs.push(builders[kind](name, row, field));
+      control.append(field);
+      fields.set(name, field);
+    });
+    if (row.button) buildButton(row.button, control);
+    line.append(control);
+    state.rows.push({ row: { ...row, inGroup: row.group ?? null }, element: line, names, syncs, fields });
+    root.append(line);
+  }
+
+  // ---------- corner tools ----------
+  // `corner(node, { values, setWidget })` returns { element, sync(values) }:
+  // tools that sit in the card's top-right corner, level with the first row
+  // (a gear, a mode chip). sync returns how many pixels they need, and every
+  // row's control keeps that much clear, so the controls down the card still
+  // share one right edge.
+  // `refresh` redraws the card after a change the tools made on the node
+  // itself (a look kept in its properties), as a change by hand.
+  const tools = typeof corner === "function" ? corner(node, { values, setWidget, refresh: () => byHand(refresh) }) : null;
+  if (tools?.element) {
+    const holder = el("div", "ausboss-card-corner");
+    holder.append(tools.element);
+    root.classList.add("has-corner");
+    root.append(holder);
+  }
+
+  // Clicks on controls stay out of the graph's drag; empty card space falls through.
+  root.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("button,input,select,textarea,.ausboss-scrub")) event.stopPropagation();
+  });
+
+  const grows = rows.some((row) => row.grow);
+  const widget = node.addDOMWidget(CARD_WIDGET, CARD_WIDGET, root, {
+    serialize: false,
+    hideOnZoom: false,
+    getMinHeight: () => state.height + WRAPPER_INSET,
+  });
+  keepDomWidgetWidthAuto(widget);
+  // The card is not a value, so it is not saved with the workflow either.
+  // options.serialize only keeps it out of the prompt; saves skip a widget
+  // whose own serialize is false. Saved values come back by position, and
+  // the "" a card saved before this lands on any input appended after it,
+  // which is why cards still carry resetUnknown for older workflows.
+  widget.serialize = false;
+  state.widget = widget;
+  if (grows) {
+    // A card with a growing textarea is a viewport: it declares a floor and
+    // takes the node's spare height, the textarea flexing to fill it.
+    fillNodeHeight(widget, {
+      minWidth,
+      minHeight: () => state.height + WRAPPER_INSET,
+      minNodeSize: [minWidth, 60],
+      exactMinWidth: true,
+    });
+  } else {
+    // A constant-height card, pinned on purpose (tests/panel_guards.test.mjs,
+    // fixedByDesign): its height is the sum of its rows, not a viewport.
+    widget.computeSize = (width) => [Math.max(minWidth, Number(width || node.size?.[0] || minWidth)), state.height + WRAPPER_INSET];
+    // Pinned in Nodes 2.0 as well, so a picture panel under the card takes
+    // the node's spare height there too.
+    pinVuePanelHeight(widget);
+    widget.options.minNodeSize = [minWidth, 60];
+    // The frontend never reads that width for a pinned widget: the card's
+    // number has to be made the node's floor by hand.
+    holdNodeMinWidth(widget, minWidth);
+  }
+  if (first && Array.isArray(node.widgets)) {
+    const index = node.widgets.indexOf(widget);
+    const firstDom = node.widgets.findIndex((item) => item !== widget && item.element);
+    if (index >= 0 && firstDom >= 0 && firstDom < index) {
+      node.widgets.splice(index, 1); node.widgets.splice(firstDom, 0, widget);
+    }
+  }
+
+  // ---------- sockets ----------
+  // Each hidden widget with an input slot reports the y of its row, so the
+  // frontend draws (and hit-tests) its socket there. A row folded away
+  // hands its socket to its group header, or to the card's top edge.
+  const socketY = (name) => {
+    if (state.disposed) return null;
+    const target = findWidget(node, name);
+    if (!target?.hidden) return null;
+    const cardY = Number(state.widget?.y);
+    if (!Number.isFinite(cardY)) return null;
+    const top = state.rowTop.get(name);
+    const span = state.rowSpan.get(name);
+    if (top === undefined) return cardY + WRAPPER_TOP - SLOT_OFFSET;
+    return socketWidgetY(cardY, WRAPPER_TOP, top, span ?? ROW_HEIGHT);
+  };
+  for (const name of new Set(managed)) {
+    if (topNames.has(name)) continue;
+    const target = findWidget(node, name);
+    if (!target || !widgetSlot(node, name)) continue;
+    const own = Object.getOwnPropertyDescriptor(target, "y");
+    if (own?.get) continue;
+    let stored = target.y;
+    try {
+      Object.defineProperty(target, "y", {
+        configurable: true, enumerable: true,
+        get: () => socketY(name) ?? stored,
+        set: (value) => { stored = value; },
+      });
+      state.socketed.push({ widget: target, restore: () => { delete target.y; target.y = stored; } });
+    } catch { /* sealed widget: its socket stays wherever the frontend leaves it */ }
+  }
+
+  // While a link is being dragged, the row under the pointer stands in for
+  // its widget, so a drop anywhere on the row lands on that widget's input.
+  // Outside a drag the card is one widget to the canvas, as before.
+  const rowWidgetAt = (canvasX, canvasY, { lifted = false } = {}) => {
+    const cardY = Number(state.widget?.y);
+    if (!Number.isFinite(cardY)) return null;
+    const localY = canvasY - node.pos[1] - cardY - WRAPPER_TOP;
+    for (const entry of state.rows) {
+      if (!entry.names?.length || Boolean(entry.row.top) !== lifted) continue;
+      const top = state.rowTop.get(entry.names[0]);
+      if (top === undefined) continue;
+      const span = state.rowSpan.get(entry.names[0]) ?? ROW_HEIGHT;
+      if (localY < top || localY > top + span) continue;
+      if (entry.names.length === 1) return entry.names[0];
+      // A pair: the field under the pointer, by its on-screen box.
+      const canvas = globalThis.app?.canvas;
+      const rect = canvas?.canvas?.getBoundingClientRect?.();
+      const scale = canvas?.ds?.scale || 1;
+      const offset = canvas?.ds?.offset || [0, 0];
+      const clientX = rect ? rect.left + (canvasX + offset[0]) * scale : null;
+      const boxes = [...entry.element.querySelectorAll(".ausboss-scrub, .ausboss-card-text, .ausboss-card-select")];
+      const hit = clientX === null ? -1 : boxes.findIndex((box) => { const r = box.getBoundingClientRect(); return clientX >= r.left && clientX <= r.right; });
+      return entry.names[Math.max(0, Math.min(entry.names.length - 1, hit))];
+    }
+    return null;
+  };
+  const originalGetWidgetOnPos = node.getWidgetOnPos;
+  if (typeof originalGetWidgetOnPos === "function") {
+    node.getWidgetOnPos = function (canvasX, canvasY, includeDisabled) {
+      const found = originalGetWidgetOnPos.call(this, canvasX, canvasY, includeDisabled);
+      if (state.disposed || found !== state.widget) return found;
+      if (!globalThis.app?.canvas?.linkConnector?.isConnecting) return found;
+      const name = rowWidgetAt(canvasX, canvasY);
+      return (name && findWidget(this, name)) || found;
+    };
+  }
+  // The fields of a pair share one socket on their row's left edge. A drop
+  // on that socket goes to the first field of the pair still free, so a
+  // second link does not silently replace the first; to aim at one field,
+  // drop on the field itself.
+  // A `top` row's fields have their sockets up in the slot column, but a
+  // drop on the field itself still means that field.
+  const originalGetInputOnPos = node.getInputOnPos;
+  if (typeof originalGetInputOnPos === "function") {
+    node.getInputOnPos = function (pos) {
+      const input = originalGetInputOnPos.call(this, pos);
+      if (state.disposed) return input;
+      if (!input && globalThis.app?.canvas?.linkConnector?.isConnecting) {
+        const topName = rowWidgetAt(pos[0], pos[1], { lifted: true });
+        if (topName) return widgetSlot(this, topName) ?? input;
+      }
+      const name = input?.widget?.name;
+      if (!name || input.link === null || input.link === undefined) return input;
+      const entry = state.rows.find((item) => item.names?.length > 1 && !item.row.top && item.names.includes(name));
+      if (!entry) return input;
+      const free = entry.names.find((other) => { const slot = widgetSlot(this, other); return slot && (slot.link === null || slot.link === undefined); });
+      return free ? widgetSlot(this, free) : input;
+    };
+  }
+
+  function refresh() {
+    if (state.disposed) return;
+    const vals = values();
+    const look = typeof lookOf === "function" ? String(lookOf(node) ?? "") : "";
+    const lookChanged = look !== state.look;
+    if (lookChanged) {
+      if (state.look) root.classList.remove(`look-${state.look}`);
+      if (look) root.classList.add(`look-${look}`);
+      state.look = look;
+      // A textarea row, and any row with a height of its own in some look,
+      // takes its height in this look.
+      for (const entry of state.rows) {
+        if (entry.row.kind !== "textarea" && !entry.row.looks) continue;
+        const height = `${rowHeight(entry.row, look)}px`;
+        if (entry.row.grow) entry.element.style.minHeight = height;
+        else entry.element.style.height = height;
+      }
+    }
+    const groups = {};
+    for (const entry of state.rows) if (entry.header) groups[entry.row.group] = groupOpen(entry.row.group);
+    const visible = visibleRows(state.rows.map((entry) => entry.row), vals, groups);
+    const visibleSet = new Set(visible);
+    const tops = rowTops(visible, look);
+    state.rowTop = new Map();
+    state.rowSpan = new Map();
+    visible.forEach((row, index) => {
+      const entry = state.rows.find((item) => item.row === row);
+      for (const name of entry?.names ?? []) { state.rowTop.set(name, tops[index]); state.rowSpan.set(name, rowHeight(row, look)); }
+      if (entry?.header) { state.rowTop.set(`group:${row.group}`, tops[index]); }
+    });
+    // A row folded under a closed group: its socket rides the header.
+    for (const entry of state.rows) {
+      if (!entry.names || visibleSet.has(entry.row) || !entry.row.inGroup) continue;
+      const headerTop = state.rowTop.get(`group:${entry.row.inGroup}`);
+      if (headerTop === undefined) continue;
+      for (const name of entry.names) { state.rowTop.set(name, headerTop); state.rowSpan.set(name, GROUP_HEIGHT); }
+    }
+    for (const entry of state.rows) {
+      const show = visibleSet.has(entry.row);
+      entry.element.classList.toggle("hidden", !show);
+      if (entry.header) entry.element.classList.toggle("open", groups[entry.row.group]);
+      if (!show) continue;
+      // A single field dims with its row; in a pair only the linked field
+      // dims, the others stay editable.
+      const linkedNames = (entry.names ?? []).filter((name) => widgetLinked(node, name));
+      const linked = (linkedNames.length > 0 && linkedNames.length === (entry.names ?? []).length)
+        || (entry.row.linkedBy ?? []).some((name) => widgetLinked(node, name));
+      entry.element.classList.toggle("linked", linked);
+      for (const [name, field] of entry.fields ?? []) field.classList.toggle("linked", linkedNames.includes(name));
+      if (entry.row.mute) {
+        const muted = rowMuted(entry.row, vals);
+        entry.element.classList.toggle("muted", muted);
+        const label = entry.element.querySelector(".ausboss-card-label");
+        entry.baseTitle ??= label?.title ?? "";
+        const hint = muted ? (entry.row.muteTitle ?? "") : "";
+        entry.element.title = hint;
+        if (label) label.title = hint || entry.baseTitle;
+      }
+      for (const sync of entry.syncs) sync(vals, linked);
+    }
+    if (tools?.sync) root.style.setProperty("--ausboss-card-corner", `${Math.max(0, Number(tools.sync(vals)) || 0)}px`);
+    const height = cardHeight(visible, look);
+    if (height !== state.height) {
+      const first = !state.height;
+      const change = first ? 0 : height - state.height;
+      state.height = height;
+      const width = Math.max(minWidth, node.size?.[0] || minWidth);
+      const floor = node.computeSize?.()[1] || height;
+      const restore = cardChangeRestore({
+        restoring: state.restoring, savedHeight: state.savedHeight, lookChanged, byHand: state.byHand, current: node.size?.[1],
+      });
+      node.setSize?.([width, nodeHeightAfterCardChange({
+        floor, current: node.size?.[1], saved: restore.saved, change, first, restoring: restore.restoring, byHand: state.byHand,
+      })]);
+      node.graph?.setDirtyCanvas?.(true, true);
+    }
+    node._widgetSlotsDirty = true;
+  }
+
+  for (const name of new Set(managed)) {
+    const target = findWidget(node, name);
+    if (target) chainCallback(target, "callback", () => refresh());
+  }
+  chainCallback(node, "onConfigure", (info) => {
+    // The node now has its saved size, and that size already holds every row
+    // the saved values show. Marked here, not in the microtask below: a
+    // refresh queued earlier in the load (a restored link) runs before it.
+    // The height is kept too: before that microtask the frontend grows the
+    // node to fit the card as it still is, with the rows of a new node.
+    state.restoring = true;
+    state.savedHeight = Number(info?.size?.[1]);
+    queueMicrotask(() => {
+      try {
+        for (const name of managed) {
+          const target = findWidget(node, name);
+          hideWidget(target);
+          if (target?.element && state.rows.some((entry) => entry.row.kind === "textarea" && entry.names?.includes(name))) target.element.style.display = "none";
+        }
+        for (const name of topNames) liftSocket(node, name);
+        refresh();
+      } finally {
+        state.restoring = false;
+        state.savedHeight = undefined;
+      }
+      // A workflow saved before this card existed sized the node for the
+      // classic widgets; give the card and any panel below it their floors.
+      ensureNodeMinHeight(node);
+    });
+  });
+  chainCallback(node, "onConnectionsChange", () => queueMicrotask(refresh));
+  chainCallback(node, "onRemoved", () => {
+    state.disposed = true;
+    for (const picker of state.pickers) picker.dispose();
+    for (const observer of state.observers) observer.disconnect();
+    for (const entry of state.socketed) entry.restore();
+    if (typeof originalGetWidgetOnPos === "function") delete node.getWidgetOnPos;
+    if (typeof originalGetInputOnPos === "function") delete node.getInputOnPos;
+  });
+
+  refresh();
+  state.refresh = refresh; state.setGroupOpen = setGroupOpen; state.groupOpen = groupOpen;
+  return state;
+}

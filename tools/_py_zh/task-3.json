@@ -1,0 +1,146 @@
+{
+ "batch": 3,
+ "messages": [
+  {
+   "text": "Select Frame received an empty IMAGE batch."
+  },
+  {
+   "text": "Select or upload a source file first."
+  },
+  {
+   "text": "SimpleWatermarkRemover compatibility supports only LAMA."
+  },
+  {
+   "text": "Source files are read only inside ComfyUI's input, output and temp folders."
+  },
+  {
+   "text": "Text Lines has no lines to run. Type at least one line, or check the node that writes its text."
+  },
+  {
+   "text": "That Civitai answer has no model information."
+  },
+  {
+   "text": "That Civitai answer is for a different file."
+  },
+  {
+   "text": "That is not a picture."
+  },
+  {
+   "text": "The bboxes input needs a box (x, y, width, height) or a prompt element (with a 'bbox')."
+  },
+  {
+   "text": "The bboxes input needs boxes (x, y, width, height) or prompt elements (with a 'bbox')."
+  },
+  {
+   "text": "The requested video frame could not be decoded."
+  },
+  {
+   "text": "The selected LaMa model did not return a BCHW RGB image batch."
+  },
+  {
+   "text": "The selected LaMa model returned an unsupported output."
+  },
+  {
+   "text": "The selected image contains no decodable frames."
+  },
+  {
+   "text": "The source did not decode enough frames for Fixed frames. Reduce the requested length."
+  },
+  {
+   "text": "The uploaded file does not contain a video stream."
+  },
+  {
+   "text": "These layers are too large for a PSD file."
+  },
+  {
+   "text": "Tiled Upscale Stitch needs the stitcher from Tiled Upscale 🆎."
+  },
+  {
+   "text": "Tiled Upscale needs a picture larger than 0x0."
+  },
+  {
+   "text": "Tiled Upscale needs a tile size above 0 megapixels."
+  },
+  {
+   "text": "Too many uploads share this filename; rename the video and retry."
+  },
+  {
+   "text": "Torchvision did not publish a RAFT checkpoint URL."
+  },
+  {
+   "text": "Transform: crop aspect ratio values must be positive."
+  },
+  {
+   "text": "Transform: input 'crop_aspect_ratio' expected free, source, or W:H."
+  },
+  {
+   "text": "Transform: input 'source_mask' expected BHW matching the image batch."
+  },
+  {
+   "text": "Transform: requested crop and padding exceed the 65536-pixel output limit."
+  },
+  {
+   "text": "Transform: source image must contain at least one pixel."
+  },
+  {
+   "text": "Upload a video in the image form field."
+  },
+  {
+   "text": "Video seek mode must be 'frame index' or 'time seconds'."
+  },
+  {
+   "text": "Video source mode must be 'input folder' or 'local path'."
+  },
+  {
+   "text": "[AusBoss] Frame Interpolate could not load %s: %s"
+  },
+  {
+   "text": "[AusBoss] Frame Interpolate expects the RAFT-small checkpoint at %s"
+  },
+  {
+   "text": "[AusBoss] Image Compare: Align did not work."
+  },
+  {
+   "text": "[AusBoss] Image Compare: Align left B as it is: %s"
+  },
+  {
+   "text": "[AusBoss] Image Compare: the mix could not be saved."
+  },
+  {
+   "text": "[AusBoss] LaMa Inpaint refused %s, SHA-256 %s"
+  },
+  {
+   "text": "[AusBoss] Load Video: this ComfyUI core cannot trim VIDEO objects; the video output is None."
+  },
+  {
+   "text": "[AusBoss] Mask by Name: SAM 3 unloaded from VRAM."
+  },
+  {
+   "text": "[AusBoss] Mask by Touch: SAM 3 unloaded from VRAM."
+  },
+  {
+   "text": "folder_paths is unavailable outside ComfyUI."
+  },
+  {
+   "text": "frame_tensor_to_pil expected one HWC RGB frame."
+  },
+  {
+   "text": "no storyboard frames decoded"
+  },
+  {
+   "text": "target_hw is required for a registered reference."
+  },
+  {
+   "text": "the background-removal model's answer is not one mask the size of the picture"
+  },
+  {
+   "text": "the detector's answer does not add up to one mask for each match"
+  },
+  {
+   "text": "the detector's answer is not one mask the size of the picture"
+  },
+  {
+   "text": "words must be a list."
+  }
+ ]
+}

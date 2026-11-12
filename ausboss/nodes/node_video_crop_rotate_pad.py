@@ -1,0 +1,180 @@
+"""Video Crop + Rotate + Pad -> Frame 🆎."""
+
+from __future__ import annotations
+
+from ._execution_helpers import ignore_extra_inputs
+from ._media_helpers import (
+    decode_video_frame,
+    list_input_videos,
+    register_video_routes,
+    resolve_video_path,
+)
+from ._inpaint_crop_helpers import build_transform_stitcher
+from ._transform_engine import (
+    original_image_batch,
+    resize_then_pad,
+    stable_file_fingerprint,
+    transform_pil_batch,
+)
+from ._transform_inputs import resize_inputs, spec_from_values, transform_inputs
+
+
+class AusBossVideoCropRotatePad:
+    CATEGORY = "🆎 AusBoss/Video"
+    DESCRIPTION = (
+        "Picks ONE frame out of a video and applies the same visual rotate, "
+        "crop, and pad transform as the image node. The output is a single "
+        "image, not a clip — the editor's timeline is there to find the frame, "
+        "not to trim a range."
+    )
+    SEARCH_ALIASES = [
+        "video crop",
+        "video frame",
+        "grab frame",
+        "extract frame",
+        "frame from video",
+        "rotate video",
+        "pad video",
+        "ausboss",
+    ]
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        required = {
+            "video": (
+                list_input_videos(),
+                {"tooltip": "Choose a video in ComfyUI's input folder or use the upload button."},
+            ),
+            "source_mode": (
+                ["input folder", "local path"],
+                {"default": "input folder", "tooltip": "Local path mode reads a video already inside ComfyUI's input, output or temp folder in place, without an upload copy."},
+            ),
+            "local_path": (
+                "STRING",
+                {
+                    "default": "",
+                    "tooltip": (
+                        "The video picked in the node's Outputs list, named the way ComfyUI "
+                        "names a file in its output folder: clip.mp4 [output]. It is read in "
+                        "place, without a copy. A whole path is not read."
+                    ),
+                },
+            ),
+            "seek_mode": (
+                ["frame index", "time seconds"],
+                {
+                    "default": "frame index",
+                    "tooltip": "Picks the frame by frame_index or by frame_time seconds; the other widget is ignored.",
+                },
+            ),
+            "frame_index": (
+                "INT",
+                {"default": 0, "min": 0, "max": 100000000, "step": 1, "tooltip": "Zero-based target frame."},
+            ),
+            "frame_time": (
+                "FLOAT",
+                {"default": 0.0, "min": 0.0, "max": 86400.0, "step": 0.001, "tooltip": "Target seconds in time mode."},
+            ),
+        }
+        required.update(transform_inputs())
+        # Optional and last: saved workflows' positional widgets_values keep
+        # loading, and API prompts from before resize existed still validate.
+        return {"required": required, "optional": resize_inputs()}
+
+    # Appended outputs only: saved links ride slot indices.
+    RETURN_TYPES = ("IMAGE", "MASK", "AUSBOSS_STITCHER", "IMAGE", "INT", "INT")
+    RETURN_NAMES = ("image", "mask", "stitcher", "original", "width", "height")
+    OUTPUT_TOOLTIPS = (
+        "The selected and transformed frame as a one-image BHWC batch.",
+        "BHW generated-area mask: rotation corners and padding.",
+        "Full-canvas stitcher: restores kept source pixels over an outpaint result; wire to Stitch Inpaint.",
+        "The picked source frame before rotation, crop, padding, or resize, as a BHWC RGB batch.",
+        "Output width after the transform and any resize.",
+        "Output height after the transform and any resize.",
+    )
+    FUNCTION = "load_transform"
+
+    def load_transform(
+        self,
+        video: str,
+        source_mode: str,
+        local_path: str,
+        seek_mode: str,
+        frame_index: int,
+        frame_time: float,
+        resize_to_megapixels=False,
+        megapixels=1.0,
+        resize_method="lanczos",
+        resolution_steps=1,
+        **values,
+    ):
+        path = resolve_video_path(source_mode, video, local_path)
+        frame, _, _ = decode_video_frame(path, seek_mode, frame_index, frame_time)
+        spec = spec_from_values(**values)
+        output, mask, geometry = transform_pil_batch([frame], spec)
+        if resize_to_megapixels:
+            output, mask, _ = resize_then_pad(
+                output, mask, geometry, spec.fill_color, float(megapixels), str(resize_method), int(resolution_steps)
+            )
+        stitcher = build_transform_stitcher(
+            output, mask, geometry, 32, source="Video Crop + Rotate + Pad -> Frame"
+        )
+        return (
+            output, mask, stitcher, original_image_batch([frame]),
+            int(output.shape[2]), int(output.shape[1]),
+        )
+
+    @classmethod
+    @ignore_extra_inputs
+    def VALIDATE_INPUTS(cls, video, source_mode, local_path):
+        # Only the source is read here, so ComfyUI still checks every other
+        # value's range and list. video and source_mode skip its list check:
+        # in local path mode the video choice is unused and may be stale.
+        # resolve_video_path reads only the input folder, or a video named
+        # inside ComfyUI's input, output or temp folder.
+        try:
+            resolve_video_path(source_mode, video, local_path)
+        except Exception as exc:
+            return f"Video Crop + Rotate + Pad: {exc}"
+        return True
+
+    @classmethod
+    def IS_CHANGED(
+        cls,
+        video,
+        source_mode,
+        local_path,
+        seek_mode,
+        frame_index,
+        frame_time,
+        **values,
+    ):
+        try:
+            path = resolve_video_path(source_mode, video, local_path)
+        except Exception:
+            path = local_path if source_mode == "local path" else video
+        spec = spec_from_values(**values)
+        resize = {name: values.get(name) for name in resize_inputs()}
+        return stable_file_fingerprint(
+            path,
+            {
+                "video": video,
+                "source_mode": source_mode,
+                "seek_mode": seek_mode,
+                "frame_index": int(frame_index),
+                "frame_time": round(float(frame_time), 6),
+                **spec.__dict__,
+                **resize,
+            },
+        )
+
+
+register_video_routes()
+
+NODE_CLASS_MAPPINGS = {"AUSBOSS_NODES_VideoCropRotatePad": AusBossVideoCropRotatePad}
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "AUSBOSS_NODES_VideoCropRotatePad": "Video Crop + Rotate + Pad → Frame 🆎"
+}
+
+__all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
+

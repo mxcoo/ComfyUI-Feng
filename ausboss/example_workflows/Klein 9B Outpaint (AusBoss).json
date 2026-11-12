@@ -1,0 +1,2572 @@
+{
+  "id": "aaa3bc5b-c65c-4d3c-b01d-2f2b0f33a1ab",
+  "revision": 0,
+  "last_node_id": 39,
+  "last_link_id": 46,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "UNETLoader",
+      "pos": [
+        1100,
+        1192
+      ],
+      "size": [
+        440,
+        82
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            1
+          ]
+        }
+      ],
+      "title": "Diffusion model",
+      "properties": {
+        "Node name for S&R": "UNETLoader",
+        "cnr_id": "comfy-core",
+        "ver": "0.37.0",
+        "models": [
+          {
+            "name": "flux-2-klein-9b-int8-convrot.safetensors",
+            "url": "https://huggingface.co/Winnougan/Klein9b-Distilled-Base-INT8-Convrot/resolve/main/flux-2-klein-9b-int8-convrot.safetensors",
+            "directory": "diffusion_models"
+          }
+        ]
+      },
+      "widgets_values": [
+        "flux-2-klein-9b-int8-convrot.safetensors",
+        "default"
+      ],
+      "widgets_values_named": {
+        "unet_name": "flux-2-klein-9b-int8-convrot.safetensors",
+        "weight_dtype": "default"
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 2,
+      "type": "CLIPLoader",
+      "pos": [
+        1100,
+        888
+      ],
+      "size": [
+        440,
+        106
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            10
+          ]
+        }
+      ],
+      "title": "Text encoder",
+      "properties": {
+        "Node name for S&R": "CLIPLoader",
+        "cnr_id": "comfy-core",
+        "ver": "0.37.0",
+        "models": [
+          {
+            "name": "qwen_3_8b_fp8mixed.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors",
+            "directory": "text_encoders"
+          }
+        ]
+      },
+      "widgets_values": [
+        "qwen_3_8b_fp8mixed.safetensors",
+        "flux2",
+        "default"
+      ],
+      "widgets_values_named": {
+        "clip_name": "qwen_3_8b_fp8mixed.safetensors",
+        "type": "flux2",
+        "device": "default"
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 3,
+      "type": "VAELoader",
+      "pos": [
+        1100,
+        1064
+      ],
+      "size": [
+        440,
+        58
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            11
+          ]
+        }
+      ],
+      "title": "VAE",
+      "properties": {
+        "Node name for S&R": "VAELoader",
+        "cnr_id": "comfy-core",
+        "ver": "0.37.0",
+        "models": [
+          {
+            "name": "flux2-vae.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/main/split_files/vae/flux2-vae.safetensors",
+            "directory": "vae"
+          }
+        ]
+      },
+      "widgets_values": [
+        "flux2-vae.safetensors"
+      ],
+      "widgets_values_named": {
+        "vae_name": "flux2-vae.safetensors"
+      },
+      "color": "#322",
+      "bgcolor": "#533"
+    },
+    {
+      "id": 4,
+      "type": "AUSBOSS_NODES_LoraLoader",
+      "pos": [
+        1100,
+        1344
+      ],
+      "size": [
+        440,
+        188
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 1
+        },
+        {
+          "name": "clip",
+          "shape": 7,
+          "type": "CLIP",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "links": []
+        },
+        {
+          "name": "triggers",
+          "type": "STRING",
+          "links": []
+        }
+      ],
+      "title": "LoRA Loader - PixaOutpaint LoRA",
+      "properties": {
+        "Node name for S&R": "AUSBOSS_NODES_LoraLoader",
+        "ausbossLoraLinked": true,
+        "cnr_id": "ausboss-nodes",
+        "ver": "2.4.0",
+        "models": [
+          {
+            "name": "pixaoutpaint.safetensors",
+            "url": "https://huggingface.co/Pixaroma/experimental_loras/resolve/main/pixaoutpaint.safetensors",
+            "directory": "loras"
+          }
+        ]
+      },
+      "widgets_values": [
+        "[{\"name\":\"pixaoutpaint.safetensors\",\"strength\":1,\"enabled\":true,\"triggers\":\"pixaoutpaint\"}]",
+        ", ",
+        "error"
+      ],
+      "widgets_values_named": {
+        "loras": "[{\"name\":\"pixaoutpaint.safetensors\",\"strength\":1,\"enabled\":true,\"triggers\":\"pixaoutpaint\"}]",
+        "trigger_separator": ", ",
+        "on_missing": "error"
+      },
+      "color": "#14424d",
+      "bgcolor": "#161f21"
+    },
+    {
+      "id": 8,
+      "type": "AUSBOSS_NODES_Text",
+      "pos": [
+        540,
+        1109
+      ],
+      "size": [
+        440,
+        168
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "links": [
+            3
+          ]
+        }
+      ],
+      "title": "Text - What goes there",
+      "properties": {
+        "Node name for S&R": "AUSBOSS_NODES_Text",
+        "cnr_id": "ausboss-nodes",
+        "ver": "2.4.0"
+      },
+      "widgets_values": [
+        "pixaoutpaint, replace all solid gray areas with a seamless continuation of the surrounding scene."
+      ],
+      "widgets_values_named": {
+        "text": "pixaoutpaint, replace all solid gray areas with a seamless continuation of the surrounding scene."
+      },
+      "color": "#14424d",
+      "bgcolor": "#161f21"
+    },
+    {
+      "id": 13,
+      "type": "AUSBOSS_NODES_Seed",
+      "pos": [
+        540,
+        1347
+      ],
+      "size": [
+        440,
+        216
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "seed",
+          "type": "INT",
+          "links": [
+            9
+          ]
+        }
+      ],
+      "title": "Seed",
+      "properties": {
+        "Node name for S&R": "AUSBOSS_NODES_Seed",
+        "cnr_id": "ausboss-nodes",
+        "ver": "2.4.0"
+      },
+      "widgets_values": [
+        8311,
+        "fixed"
+      ],
+      "widgets_values_named": {
+        "seed": 8311,
+        "control_after_generate": "fixed"
+      },
+      "color": "#14424d",
+      "bgcolor": "#161f21"
+    },
+    {
+      "id": 17,
+      "type": "AUSBOSS_NODES_RunTimer",
+      "pos": [
+        1735,
+        1496
+      ],
+      "size": [
+        210,
+        67
+      ],
+      "flags": {
+        "no_title": true
+      },
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Run Timer",
+      "properties": {
+        "Node name for S&R": "AUSBOSS_NODES_RunTimer",
+        "cnr_id": "ausboss-nodes",
+        "ver": "2.4.0"
+      },
+      "color": "#07090a",
+      "bgcolor": "#07090a"
+    },
+    {
+      "id": 26,
+      "type": "AUSBOSS_NODES_ImageCropRotatePad",
+      "pos": [
+        540,
+        80
+      ],
+      "size": [
+        440,
+        959
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            5,
+            14
+          ]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": [
+            6
+          ]
+        },
+        {
+          "name": "stitcher",
+          "type": "AUSBOSS_STITCHER",
+          "links": [
+            7
+          ]
+        },
+        {
+          "name": "original",
+          "type": "IMAGE",
+          "links": [
+            2
+          ]
+        },
+        {
+          "name": "width",
+          "type": "INT",
+          "links": []
+        },
+        {
+          "name": "height",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "title": "Image Crop + Rotate + Pad - Your image",
+      "properties": {
+        "Node name for S&R": "AUSBOSS_NODES_ImageCropRotatePad",
+        "cnr_id": "ausboss-nodes",
+        "ver": "2.4.0",
+        "ausboss_fit_aspect": "3:4",
+        "ausboss_aspect_mode": "pad",
+        "ausboss_aspect_lock": false,
+        "ausboss_pad_portrait": true
+      },
+      "widgets_values": {
+        "image": "",
+        "rotation_degrees": 0,
+        "crop_aspect_ratio": "free",
+        "crop_x": 0,
+        "crop_y": 0,
+        "crop_width": 0,
+        "crop_height": 0,
+        "pad_left": 0,
+        "pad_top": 0,
+        "pad_right": 0,
+        "pad_bottom": 0,
+        "feather": 64,
+        "canvas_multiple": 1,
+        "fill_color": "#808080",
+        "resize_to_megapixels": true,
+        "megapixels": 1.6,
+        "resize_method": "lanczos",
+        "resolution_steps": 16,
+        "stitch_blend": 0,
+        "stitch_grow": 0
+      },
+      "widgets_values_named": {
+        "image": "",
+        "rotation_degrees": 0,
+        "crop_aspect_ratio": "free",
+        "crop_x": 0,
+        "crop_y": 0,
+        "crop_width": 0,
+        "crop_height": 0,
+        "pad_left": 0,
+        "pad_top": 0,
+        "pad_right": 0,
+        "pad_bottom": 0,
+        "feather": 64,
+        "canvas_multiple": 1,
+        "fill_color": "#808080",
+        "resize_to_megapixels": true,
+        "megapixels": 1.6,
+        "resize_method": "lanczos",
+        "resolution_steps": 16,
+        "stitch_blend": 0,
+        "stitch_grow": 0,
+        "upload": "image"
+      },
+      "color": "#14424d",
+      "bgcolor": "#161f21"
+    },
+    {
+      "id": 22,
+      "type": "CLIPLoader",
+      "pos": [
+        1100,
+        712
+      ],
+      "size": [
+        440,
+        106
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            4
+          ]
+        }
+      ],
+      "title": "Caption model",
+      "properties": {
+        "Node name for S&R": "CLIPLoader",
+        "cnr_id": "comfy-core",
+        "ver": "0.37.0",
+        "models": [
+          {
+            "name": "qwen3vl_8b_int8_convrot.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors",
+            "directory": "text_encoders"
+          }
+        ]
+      },
+      "widgets_values": [
+        "qwen3vl_8b_int8_convrot.safetensors",
+        "qwen_image",
+        "default"
+      ],
+      "widgets_values_named": {
+        "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+        "type": "qwen_image",
+        "device": "default"
+      },
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 28,
+      "type": "6a1d2b64-3f0e-4c53-9d1e-5b8f7c2a4e01",
+      "pos": [
+        1100,
+        238
+      ],
+      "size": [
+        440,
+        66
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "picture",
+          "type": "IMAGE",
+          "link": 2
+        },
+        {
+          "name": "what goes there",
+          "type": "STRING",
+          "link": 3
+        },
+        {
+          "name": "caption model",
+          "type": "CLIP",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "links": [
+            8
+          ]
+        }
+      ],
+      "properties": {
+        "previewExposures": []
+      },
+      "color": "#14424d",
+      "bgcolor": "#161f21"
+    },
+    {
+      "id": 29,
+      "type": "b93e7c15-8d42-4a6f-a0c7-2e5d9f13b6a8",
+      "pos": [
+        1100,
+        374
+      ],
+      "size": [
+        440,
+        180
+      ],
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "canvas",
+          "type": "IMAGE",
+          "link": 5
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "link": 6
+        },
+        {
+          "name": "stitcher",
+          "type": "AUSBOSS_STITCHER",
+          "link": 7
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "link": 8
+        },
+        {
+          "name": "seed",
+          "type": "INT",
+          "link": 9
+        },
+        {
+          "name": "text encoder",
+          "type": "CLIP",
+          "link": 10
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 11
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 12
+        }
+      ],
+      "outputs": [
+        {
+          "name": "result",
+          "type": "IMAGE",
+          "links": [
+            13
+          ]
+        }
+      ],
+      "properties": {
+        "previewExposures": [
+          {
+            "name": "$$canvas-image-preview",
+            "sourceNodeId": "14",
+            "sourcePreviewName": "$$canvas-image-preview"
+          }
+        ]
+      },
+      "color": "#14424d",
+      "bgcolor": "#161f21"
+    },
+    {
+      "id": 18,
+      "type": "AUSBOSS_NODES_Compare",
+      "pos": [
+        1620,
+        80
+      ],
+      "size": [
+        440,
+        606
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image_a",
+          "type": "IMAGE",
+          "link": 13
+        },
+        {
+          "name": "image_b",
+          "type": "IMAGE",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image_a",
+          "type": "IMAGE",
+          "links": [
+            15
+          ]
+        }
+      ],
+      "title": "Image Compare A/B - Before and after",
+      "properties": {
+        "Node name for S&R": "AUSBOSS_NODES_Compare",
+        "ausboss_compare_mode": "slide",
+        "cnr_id": "ausboss-nodes",
+        "ver": "2.4.0"
+      },
+      "widgets_values": [],
+      "widgets_values_named": {},
+      "color": "#14424d",
+      "bgcolor": "#161f21"
+    },
+    {
+      "id": 19,
+      "type": "AUSBOSS_NODES_SaveImage",
+      "pos": [
+        1620,
+        756
+      ],
+      "size": [
+        440,
+        700
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 15
+        },
+        {
+          "name": "filename",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        },
+        {
+          "name": "caption_text",
+          "shape": 7,
+          "type": "STRING",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "file_path",
+          "type": "STRING",
+          "links": []
+        },
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "links": []
+        }
+      ],
+      "title": "Save Image",
+      "properties": {
+        "Node name for S&R": "AUSBOSS_NODES_SaveImage",
+        "cnr_id": "ausboss-nodes",
+        "ver": "2.4.0"
+      },
+      "widgets_values": {
+        "filename_prefix": "klein_outpaint",
+        "format": "png",
+        "save_metadata": true,
+        "exact_name": "",
+        "on_existing": "overwrite",
+        "output_dir": "",
+        "caption": "",
+        "name_counter": true,
+        "name_date": false,
+        "name_time": false,
+        "name_size": false,
+        "name_batch": false,
+        "preview": true
+      },
+      "widgets_values_named": {
+        "filename_prefix": "klein_outpaint",
+        "format": "png",
+        "save_metadata": true,
+        "exact_name": "",
+        "on_existing": "overwrite",
+        "output_dir": "",
+        "caption": "",
+        "name_counter": true,
+        "name_date": false,
+        "name_time": false,
+        "name_size": false,
+        "name_batch": false,
+        "preview": true
+      },
+      "color": "#14424d",
+      "bgcolor": "#161f21"
+    },
+    {
+      "id": 20,
+      "type": "AUSBOSS_NODES_WorkflowNote",
+      "pos": [
+        0,
+        30
+      ],
+      "size": [
+        480,
+        844
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "🆎 AusBoss",
+      "properties": {
+        "Node name for S&R": "AUSBOSS_NODES_WorkflowNote",
+        "cnr_id": "ausboss-nodes",
+        "ver": "2.4.0"
+      },
+      "widgets_values": [
+        "{\"v\": 1, \"title\": \"Klein 9B Outpaint\", \"subtitle\": \"Extend a picture, and Klein 9B paints the new area.\", \"author\": \"AusBoss\", \"layout\": \"card\", \"accent\": \"\", \"body\": \"[▶ AusBoss on YouTube](https://www.youtube.com/@ausbossdev) · videos on these nodes and workflows\\n\\n---\\n\\n1. Load your image.\\n2. Pick a ratio, or drag the orange handles out.\\n3. Optional: describe the new area in **What goes there**, after the first sentence.\\n4. Press **Run**.\\n\\nKeep that first sentence. Without it the new area can come out blank.\\n\\nA big pad can grow a second hand or face near your picture's edge. If it does, extend in two runs.\\n\\nThe result is about 1.6 MP, whatever size your picture is.\\n\\nNeeds AusBoss nodes newer than 2.4.0 (update first).\", \"models\": [{\"name\": \"flux-2-klein-9b-int8-convrot.safetensors\", \"dir\": \"diffusion_models\", \"size\": \"9.43 GB\", \"url\": \"https://huggingface.co/Winnougan/Klein9b-Distilled-Base-INT8-Convrot/resolve/main/flux-2-klein-9b-int8-convrot.safetensors\", \"note\": \"INT8 build by Winnougan\"}, {\"name\": \"qwen_3_8b_fp8mixed.safetensors\", \"dir\": \"text_encoders\", \"size\": \"8.66 GB\", \"url\": \"https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors\", \"note\": \"\"}, {\"name\": \"flux2-vae.safetensors\", \"dir\": \"vae\", \"size\": \"336 MB\", \"url\": \"https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/main/split_files/vae/flux2-vae.safetensors\", \"note\": \"\"}, {\"name\": \"pixaoutpaint.safetensors\", \"dir\": \"loras\", \"size\": \"127 MB\", \"url\": \"https://huggingface.co/Pixaroma/experimental_loras/resolve/main/pixaoutpaint.safetensors\", \"note\": \"by Pixaroma\"}, {\"name\": \"qwen3vl_8b_int8_convrot.safetensors\", \"dir\": \"text_encoders\", \"size\": \"9.35 GB\", \"url\": \"https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors\", \"note\": \"for the description\"}], \"packs\": [{\"name\": \"ComfyUI-AusBoss\", \"url\": \"https://github.com/ausboss/ComfyUI-AusBoss\", \"node\": \"AUSBOSS_NODES_ImageCropRotatePad\"}], \"links\": [{\"label\": \"YouTube · ausbossdev\", \"url\": \"https://www.youtube.com/@ausbossdev\"}, {\"label\": \"GitHub · ausboss\", \"url\": \"https://github.com/ausboss\"}, {\"label\": \"Civitai · AusBoss\", \"url\": \"https://civitai.com/user/AusBoss\"}, {\"label\": \"X · Zanzibased\", \"url\": \"https://x.com/Zanzibased\"}]}"
+      ],
+      "widgets_values_named": {
+        "note": "{\"v\": 1, \"title\": \"Klein 9B Outpaint\", \"subtitle\": \"Extend a picture, and Klein 9B paints the new area.\", \"author\": \"AusBoss\", \"layout\": \"card\", \"accent\": \"\", \"body\": \"[▶ AusBoss on YouTube](https://www.youtube.com/@ausbossdev) · videos on these nodes and workflows\\n\\n---\\n\\n1. Load your image.\\n2. Pick a ratio, or drag the orange handles out.\\n3. Optional: describe the new area in **What goes there**, after the first sentence.\\n4. Press **Run**.\\n\\nKeep that first sentence. Without it the new area can come out blank.\\n\\nA big pad can grow a second hand or face near your picture's edge. If it does, extend in two runs.\\n\\nThe result is about 1.6 MP, whatever size your picture is.\\n\\nNeeds AusBoss nodes newer than 2.4.0 (update first).\", \"models\": [{\"name\": \"flux-2-klein-9b-int8-convrot.safetensors\", \"dir\": \"diffusion_models\", \"size\": \"9.43 GB\", \"url\": \"https://huggingface.co/Winnougan/Klein9b-Distilled-Base-INT8-Convrot/resolve/main/flux-2-klein-9b-int8-convrot.safetensors\", \"note\": \"INT8 build by Winnougan\"}, {\"name\": \"qwen_3_8b_fp8mixed.safetensors\", \"dir\": \"text_encoders\", \"size\": \"8.66 GB\", \"url\": \"https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/main/split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors\", \"note\": \"\"}, {\"name\": \"flux2-vae.safetensors\", \"dir\": \"vae\", \"size\": \"336 MB\", \"url\": \"https://huggingface.co/Comfy-Org/flux2-klein-9B/resolve/main/split_files/vae/flux2-vae.safetensors\", \"note\": \"\"}, {\"name\": \"pixaoutpaint.safetensors\", \"dir\": \"loras\", \"size\": \"127 MB\", \"url\": \"https://huggingface.co/Pixaroma/experimental_loras/resolve/main/pixaoutpaint.safetensors\", \"note\": \"by Pixaroma\"}, {\"name\": \"qwen3vl_8b_int8_convrot.safetensors\", \"dir\": \"text_encoders\", \"size\": \"9.35 GB\", \"url\": \"https://huggingface.co/Comfy-Org/Qwen-Image-2.1/resolve/main/text_encoders/qwen3vl_8b_int8_convrot.safetensors\", \"note\": \"for the description\"}], \"packs\": [{\"name\": \"ComfyUI-AusBoss\", \"url\": \"https://github.com/ausboss/ComfyUI-AusBoss\", \"node\": \"AUSBOSS_NODES_ImageCropRotatePad\"}], \"links\": [{\"label\": \"YouTube · ausbossdev\", \"url\": \"https://www.youtube.com/@ausbossdev\"}, {\"label\": \"GitHub · ausboss\", \"url\": \"https://github.com/ausboss\"}, {\"label\": \"Civitai · AusBoss\", \"url\": \"https://civitai.com/user/AusBoss\"}, {\"label\": \"X · Zanzibased\", \"url\": \"https://x.com/Zanzibased\"}]}"
+      },
+      "color": "#14424d",
+      "bgcolor": "#161f21"
+    },
+    {
+      "id": 39,
+      "type": "MarkdownNote",
+      "pos": [
+        1100,
+        80
+      ],
+      "size": [
+        440,
+        88
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Note",
+      "properties": {},
+      "widgets_values": [
+        "## These two boxes write the prompt from your image, then paint and put your image back. Double-click one to see inside."
+      ],
+      "widgets_values_named": {
+        "text": "## These two boxes write the prompt from your image, then paint and put your image back. Double-click one to see inside."
+      },
+      "color": "#1f2c38",
+      "bgcolor": "#2a3b4a"
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      4,
+      0,
+      "MODEL"
+    ],
+    [
+      2,
+      26,
+      3,
+      28,
+      0,
+      "IMAGE"
+    ],
+    [
+      3,
+      8,
+      0,
+      28,
+      1,
+      "STRING"
+    ],
+    [
+      4,
+      22,
+      0,
+      28,
+      2,
+      "CLIP"
+    ],
+    [
+      5,
+      26,
+      0,
+      29,
+      0,
+      "IMAGE"
+    ],
+    [
+      6,
+      26,
+      1,
+      29,
+      1,
+      "MASK"
+    ],
+    [
+      7,
+      26,
+      2,
+      29,
+      2,
+      "AUSBOSS_STITCHER"
+    ],
+    [
+      8,
+      28,
+      0,
+      29,
+      3,
+      "STRING"
+    ],
+    [
+      9,
+      13,
+      0,
+      29,
+      4,
+      "INT"
+    ],
+    [
+      10,
+      2,
+      0,
+      29,
+      5,
+      "CLIP"
+    ],
+    [
+      11,
+      3,
+      0,
+      29,
+      6,
+      "VAE"
+    ],
+    [
+      12,
+      4,
+      0,
+      29,
+      7,
+      "MODEL"
+    ],
+    [
+      13,
+      29,
+      0,
+      18,
+      0,
+      "IMAGE"
+    ],
+    [
+      14,
+      26,
+      0,
+      18,
+      1,
+      "IMAGE"
+    ],
+    [
+      15,
+      18,
+      0,
+      19,
+      0,
+      "IMAGE"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "1 · Your input",
+      "bounding": [
+        520,
+        0,
+        480,
+        1610
+      ],
+      "color": "#1d5560",
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "2 · Behind the scenes",
+      "bounding": [
+        1080,
+        0,
+        480,
+        592
+      ],
+      "color": "#1d5560",
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "3 · Models",
+      "bounding": [
+        1080,
+        632,
+        480,
+        976
+      ],
+      "color": "#1d5560",
+      "flags": {}
+    },
+    {
+      "id": 4,
+      "title": "4 · Result",
+      "bounding": [
+        1600,
+        0,
+        480,
+        1610
+      ],
+      "color": "#1d5560",
+      "flags": {}
+    }
+  ],
+  "definitions": {
+    "subgraphs": [
+      {
+        "id": "6a1d2b64-3f0e-4c53-9d1e-5b8f7c2a4e01",
+        "version": 1,
+        "state": {
+          "lastGroupId": 10,
+          "lastNodeId": 39,
+          "lastLinkId": 46,
+          "lastRerouteId": 0
+        },
+        "revision": 0,
+        "config": {},
+        "name": "Write the prompt",
+        "inputNode": {
+          "id": -10,
+          "bounding": [
+            -260,
+            120,
+            128,
+            100
+          ]
+        },
+        "outputNode": {
+          "id": -20,
+          "bounding": [
+            1160,
+            120,
+            128,
+            80
+          ]
+        },
+        "inputs": [
+          {
+            "id": "db371c91-5ec2-521a-9442-c6d66ae53ab3",
+            "name": "picture",
+            "type": "IMAGE",
+            "linkIds": [
+              16
+            ],
+            "localized_name": "picture",
+            "pos": [
+              51,
+              24
+            ]
+          },
+          {
+            "id": "a6c85f15-34e3-5cbc-a33c-6545a2be09b8",
+            "name": "what goes there",
+            "type": "STRING",
+            "linkIds": [
+              19
+            ],
+            "localized_name": "what goes there",
+            "pos": [
+              51,
+              44
+            ]
+          },
+          {
+            "id": "79abcea2-92fe-5f71-a659-a91c466db733",
+            "name": "caption model",
+            "type": "CLIP",
+            "linkIds": [
+              18
+            ],
+            "localized_name": "caption model",
+            "pos": [
+              51,
+              64
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "id": "25c4f9a1-6d22-5747-85b2-07c0caa5041a",
+            "name": "prompt",
+            "type": "STRING",
+            "linkIds": [
+              23
+            ],
+            "localized_name": "prompt",
+            "pos": [
+              24,
+              24
+            ]
+          }
+        ],
+        "widgets": [],
+        "nodes": [
+          {
+            "id": 27,
+            "type": "ImageScaleToMaxDimension",
+            "pos": [
+              20,
+              238
+            ],
+            "size": [
+              460,
+              82
+            ],
+            "flags": {},
+            "order": 5,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "image",
+                "name": "image",
+                "type": "IMAGE",
+                "link": 16
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "IMAGE",
+                "name": "IMAGE",
+                "type": "IMAGE",
+                "links": [
+                  17
+                ]
+              }
+            ],
+            "title": "Small copy for the caption",
+            "properties": {
+              "Node name for S&R": "ImageScaleToMaxDimension",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "widgets_values": [
+              "area",
+              384
+            ],
+            "widgets_values_named": {
+              "upscale_method": "area",
+              "largest_size": 384
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 23,
+            "type": "TextGenerate",
+            "pos": [
+              20,
+              390
+            ],
+            "size": [
+              460,
+              440
+            ],
+            "flags": {},
+            "order": 2,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "clip",
+                "name": "clip",
+                "type": "CLIP",
+                "link": 18
+              },
+              {
+                "localized_name": "image",
+                "name": "image",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": 17
+              },
+              {
+                "localized_name": "video",
+                "name": "video",
+                "shape": 7,
+                "type": "IMAGE",
+                "link": null
+              },
+              {
+                "localized_name": "audio",
+                "name": "audio",
+                "shape": 7,
+                "type": "AUDIO",
+                "link": null
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "generated_text",
+                "name": "generated_text",
+                "type": "STRING",
+                "links": [
+                  21
+                ]
+              }
+            ],
+            "title": "Describe the setting",
+            "properties": {
+              "Node name for S&R": "TextGenerate",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "widgets_values": [
+              "Describe only the background and setting behind the subject, its materials and the lighting, in 30 to 60 words. Do not describe any person, face, hair, clothing or pose, and do not describe the framing, cropping or shot type (no close-up, portrait or headshot): the picture is only part of a larger scene that continues past its edges. Use plain factual language. Do not invent actions, camera motion, sound or objects. Output only the description.",
+              180,
+              "on",
+              0.3,
+              64,
+              0.95,
+              0.05,
+              1.05,
+              20260922,
+              0,
+              true,
+              true,
+              "auto"
+            ],
+            "widgets_values_named": {
+              "prompt": "Describe only the background and setting behind the subject, its materials and the lighting, in 30 to 60 words. Do not describe any person, face, hair, clothing or pose, and do not describe the framing, cropping or shot type (no close-up, portrait or headshot): the picture is only part of a larger scene that continues past its edges. Use plain factual language. Do not invent actions, camera motion, sound or objects. Output only the description.",
+              "max_length": 180,
+              "sampling_mode": "on",
+              "sampling_mode.temperature": 0.3,
+              "sampling_mode.top_k": 64,
+              "sampling_mode.top_p": 0.95,
+              "sampling_mode.min_p": 0.05,
+              "sampling_mode.repetition_penalty": 1.05,
+              "sampling_mode.seed": 20260922,
+              "sampling_mode.presence_penalty": 0,
+              "thinking": true,
+              "use_default_template": true,
+              "mtp": "auto"
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 24,
+            "type": "StringConcatenate",
+            "pos": [
+              560,
+              304
+            ],
+            "size": [
+              460,
+              166
+            ],
+            "flags": {},
+            "order": 3,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "string_a",
+                "name": "string_a",
+                "type": "STRING",
+                "widget": {
+                  "name": "string_a"
+                },
+                "link": 20
+              },
+              {
+                "localized_name": "string_b",
+                "name": "string_b",
+                "type": "STRING",
+                "widget": {
+                  "name": "string_b"
+                },
+                "link": 21
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "STRING",
+                "name": "STRING",
+                "type": "STRING",
+                "links": [
+                  22
+                ]
+              }
+            ],
+            "title": "Your line, then the description",
+            "properties": {
+              "Node name for S&R": "StringConcatenate",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "widgets_values": [
+              "",
+              "",
+              "\n\nScene to continue: "
+            ],
+            "widgets_values_named": {
+              "string_a": "",
+              "string_b": "",
+              "delimiter": "\n\nScene to continue: "
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 25,
+            "type": "AUSBOSS_NODES_ShowText",
+            "pos": [
+              560,
+              540
+            ],
+            "size": [
+              460,
+              220
+            ],
+            "flags": {},
+            "order": 4,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "text",
+                "name": "text",
+                "type": "STRING",
+                "link": 22
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "text",
+                "name": "text",
+                "type": "STRING",
+                "links": [
+                  23
+                ]
+              }
+            ],
+            "title": "Show Text - Prompt sent to Klein",
+            "properties": {
+              "Node name for S&R": "AUSBOSS_NODES_ShowText",
+              "cnr_id": "ausboss-nodes",
+              "ver": "2.4.0"
+            },
+            "widgets_values": [],
+            "widgets_values_named": {},
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 30,
+            "type": "Reroute",
+            "pos": [
+              560,
+              208
+            ],
+            "size": [
+              75,
+              26
+            ],
+            "flags": {},
+            "order": 6,
+            "mode": 0,
+            "inputs": [
+              {
+                "name": "",
+                "type": "*",
+                "link": 19
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "STRING",
+                "links": [
+                  20
+                ]
+              }
+            ],
+            "properties": {
+              "showOutputText": false,
+              "horizontal": false
+            }
+          },
+          {
+            "id": 31,
+            "type": "MarkdownNote",
+            "pos": [
+              20,
+              80
+            ],
+            "size": [
+              460,
+              88
+            ],
+            "flags": {},
+            "order": 0,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [],
+            "title": "Note",
+            "properties": {},
+            "widgets_values": [
+              "Qwen3-VL 8B describes the setting behind your subject, not the person. Describing the person made Klein paint a second face under tight crops."
+            ],
+            "widgets_values_named": {
+              "text": "Qwen3-VL 8B describes the setting behind your subject, not the person. Describing the person made Klein paint a second face under tight crops."
+            },
+            "color": "#1f2c38",
+            "bgcolor": "#2a3b4a"
+          },
+          {
+            "id": 32,
+            "type": "MarkdownNote",
+            "pos": [
+              560,
+              80
+            ],
+            "size": [
+              460,
+              88
+            ],
+            "flags": {},
+            "order": 1,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [],
+            "title": "Note",
+            "properties": {},
+            "widgets_values": [
+              "Your line from What goes there comes first, then the description. Show Text shows the prompt Klein gets."
+            ],
+            "widgets_values_named": {
+              "text": "Your line from What goes there comes first, then the description. Show Text shows the prompt Klein gets."
+            },
+            "color": "#1f2c38",
+            "bgcolor": "#2a3b4a"
+          }
+        ],
+        "groups": [
+          {
+            "id": 5,
+            "title": "1 · Describe the setting",
+            "bounding": [
+              0,
+              0,
+              500,
+              904
+            ],
+            "color": "#1d5560",
+            "flags": {}
+          },
+          {
+            "id": 6,
+            "title": "2 · Build the prompt",
+            "bounding": [
+              540,
+              0,
+              500,
+              780
+            ],
+            "color": "#1d5560",
+            "flags": {}
+          }
+        ],
+        "links": [
+          {
+            "id": 16,
+            "origin_id": -10,
+            "origin_slot": 0,
+            "target_id": 27,
+            "target_slot": 0,
+            "type": "IMAGE"
+          },
+          {
+            "id": 19,
+            "origin_id": -10,
+            "origin_slot": 1,
+            "target_id": 30,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 20,
+            "origin_id": 30,
+            "origin_slot": 0,
+            "target_id": 24,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 21,
+            "origin_id": 23,
+            "origin_slot": 0,
+            "target_id": 24,
+            "target_slot": 1,
+            "type": "STRING"
+          },
+          {
+            "id": 22,
+            "origin_id": 24,
+            "origin_slot": 0,
+            "target_id": 25,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 23,
+            "origin_id": 25,
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 18,
+            "origin_id": -10,
+            "origin_slot": 2,
+            "target_id": 23,
+            "target_slot": 0,
+            "type": "CLIP"
+          },
+          {
+            "id": 17,
+            "origin_id": 27,
+            "origin_slot": 0,
+            "target_id": 23,
+            "target_slot": 1,
+            "type": "IMAGE"
+          }
+        ],
+        "extra": {}
+      },
+      {
+        "id": "b93e7c15-8d42-4a6f-a0c7-2e5d9f13b6a8",
+        "version": 1,
+        "state": {
+          "lastGroupId": 10,
+          "lastNodeId": 39,
+          "lastLinkId": 46,
+          "lastRerouteId": 0
+        },
+        "revision": 0,
+        "config": {},
+        "name": "Paint with Klein",
+        "inputNode": {
+          "id": -10,
+          "bounding": [
+            -260,
+            120,
+            128,
+            200
+          ]
+        },
+        "outputNode": {
+          "id": -20,
+          "bounding": [
+            2240,
+            120,
+            128,
+            80
+          ]
+        },
+        "inputs": [
+          {
+            "id": "67b87fc3-289f-5d73-96c8-77b00d30d39f",
+            "name": "canvas",
+            "type": "IMAGE",
+            "linkIds": [
+              24
+            ],
+            "localized_name": "canvas",
+            "pos": [
+              51,
+              24
+            ]
+          },
+          {
+            "id": "c65fab52-875d-59f5-aba9-e6de8745bfac",
+            "name": "mask",
+            "type": "MASK",
+            "linkIds": [
+              27
+            ],
+            "localized_name": "mask",
+            "pos": [
+              51,
+              44
+            ]
+          },
+          {
+            "id": "f4cac9fb-57e2-52b4-8f9e-aac217b3730c",
+            "name": "stitcher",
+            "type": "AUSBOSS_STITCHER",
+            "linkIds": [
+              44
+            ],
+            "localized_name": "stitcher",
+            "pos": [
+              51,
+              64
+            ]
+          },
+          {
+            "id": "272a7ccd-40b7-5233-9458-62ea41df9fe5",
+            "name": "prompt",
+            "type": "STRING",
+            "linkIds": [
+              28
+            ],
+            "localized_name": "prompt",
+            "pos": [
+              51,
+              84
+            ]
+          },
+          {
+            "id": "7fb35722-27a8-5133-81ab-374d7fc3b517",
+            "name": "seed",
+            "type": "INT",
+            "linkIds": [
+              40
+            ],
+            "localized_name": "seed",
+            "pos": [
+              51,
+              104
+            ]
+          },
+          {
+            "id": "cdb70a6a-2c00-5b50-9b1b-02e7fe2bc827",
+            "name": "text encoder",
+            "type": "CLIP",
+            "linkIds": [
+              30
+            ],
+            "localized_name": "text encoder",
+            "pos": [
+              51,
+              124
+            ]
+          },
+          {
+            "id": "0b491d74-0416-5cca-a0a3-71326670513e",
+            "name": "vae",
+            "type": "VAE",
+            "linkIds": [
+              25,
+              43
+            ],
+            "localized_name": "vae",
+            "pos": [
+              51,
+              144
+            ]
+          },
+          {
+            "id": "3d87d3f3-9060-5460-ae7c-46cf3411d409",
+            "name": "model",
+            "type": "MODEL",
+            "linkIds": [
+              36
+            ],
+            "localized_name": "model",
+            "pos": [
+              51,
+              164
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "id": "41468b0e-8760-5ddb-b425-8efb36b6e441",
+            "name": "result",
+            "type": "IMAGE",
+            "linkIds": [
+              46
+            ],
+            "localized_name": "result",
+            "pos": [
+              24,
+              24
+            ]
+          }
+        ],
+        "widgets": [],
+        "nodes": [
+          {
+            "id": 6,
+            "type": "VAEEncode",
+            "pos": [
+              20,
+              238
+            ],
+            "size": [
+              460,
+              46
+            ],
+            "flags": {},
+            "order": 4,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "pixels",
+                "name": "pixels",
+                "type": "IMAGE",
+                "link": 24
+              },
+              {
+                "localized_name": "vae",
+                "name": "vae",
+                "type": "VAE",
+                "link": 25
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "LATENT",
+                "name": "LATENT",
+                "type": "LATENT",
+                "links": [
+                  26,
+                  32,
+                  35
+                ]
+              }
+            ],
+            "title": "Canvas to latent",
+            "properties": {
+              "Node name for S&R": "VAEEncode",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 21,
+            "type": "SetLatentNoiseMask",
+            "pos": [
+              20,
+              354
+            ],
+            "size": [
+              460,
+              46
+            ],
+            "flags": {},
+            "order": 12,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "samples",
+                "name": "samples",
+                "type": "LATENT",
+                "link": 26
+              },
+              {
+                "localized_name": "mask",
+                "name": "mask",
+                "type": "MASK",
+                "link": 27
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "LATENT",
+                "name": "LATENT",
+                "type": "LATENT",
+                "links": [
+                  39
+                ]
+              }
+            ],
+            "title": "Paint only the gray",
+            "properties": {
+              "Node name for S&R": "SetLatentNoiseMask",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 9,
+            "type": "CLIPTextEncode",
+            "pos": [
+              560,
+              304
+            ],
+            "size": [
+              460,
+              88
+            ],
+            "flags": {},
+            "order": 5,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "clip",
+                "name": "clip",
+                "type": "CLIP",
+                "link": 30
+              },
+              {
+                "localized_name": "text",
+                "name": "text",
+                "type": "STRING",
+                "widget": {
+                  "name": "text"
+                },
+                "link": 29
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "CONDITIONING",
+                "name": "CONDITIONING",
+                "type": "CONDITIONING",
+                "links": [
+                  31,
+                  33
+                ]
+              }
+            ],
+            "title": "Encode the prompt",
+            "properties": {
+              "Node name for S&R": "CLIPTextEncode",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "widgets_values": [
+              ""
+            ],
+            "widgets_values_named": {
+              "text": ""
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 10,
+            "type": "ReferenceLatent",
+            "pos": [
+              560,
+              462
+            ],
+            "size": [
+              460,
+              46
+            ],
+            "flags": {},
+            "order": 6,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "conditioning",
+                "name": "conditioning",
+                "type": "CONDITIONING",
+                "link": 31
+              },
+              {
+                "localized_name": "latent",
+                "name": "latent",
+                "shape": 7,
+                "type": "LATENT",
+                "link": 32
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "CONDITIONING",
+                "name": "CONDITIONING",
+                "type": "CONDITIONING",
+                "links": [
+                  37
+                ]
+              }
+            ],
+            "title": "Canvas as reference",
+            "properties": {
+              "Node name for S&R": "ReferenceLatent",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 11,
+            "type": "ConditioningZeroOut",
+            "pos": [
+              560,
+              578
+            ],
+            "size": [
+              460,
+              26
+            ],
+            "flags": {},
+            "order": 7,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "conditioning",
+                "name": "conditioning",
+                "type": "CONDITIONING",
+                "link": 33
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "CONDITIONING",
+                "name": "CONDITIONING",
+                "type": "CONDITIONING",
+                "links": [
+                  34
+                ]
+              }
+            ],
+            "title": "Empty negative",
+            "properties": {
+              "Node name for S&R": "ConditioningZeroOut",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 12,
+            "type": "ReferenceLatent",
+            "pos": [
+              560,
+              674
+            ],
+            "size": [
+              460,
+              46
+            ],
+            "flags": {},
+            "order": 8,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "conditioning",
+                "name": "conditioning",
+                "type": "CONDITIONING",
+                "link": 34
+              },
+              {
+                "localized_name": "latent",
+                "name": "latent",
+                "shape": 7,
+                "type": "LATENT",
+                "link": 35
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "CONDITIONING",
+                "name": "CONDITIONING",
+                "type": "CONDITIONING",
+                "links": [
+                  38
+                ]
+              }
+            ],
+            "title": "Canvas as reference, negative",
+            "properties": {
+              "Node name for S&R": "ReferenceLatent",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 14,
+            "type": "KSampler",
+            "pos": [
+              1100,
+              304
+            ],
+            "size": [
+              460,
+              262
+            ],
+            "flags": {},
+            "order": 9,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "model",
+                "name": "model",
+                "type": "MODEL",
+                "link": 36
+              },
+              {
+                "localized_name": "positive",
+                "name": "positive",
+                "type": "CONDITIONING",
+                "link": 37
+              },
+              {
+                "localized_name": "negative",
+                "name": "negative",
+                "type": "CONDITIONING",
+                "link": 38
+              },
+              {
+                "localized_name": "latent_image",
+                "name": "latent_image",
+                "type": "LATENT",
+                "link": 39
+              },
+              {
+                "localized_name": "seed",
+                "name": "seed",
+                "type": "INT",
+                "widget": {
+                  "name": "seed"
+                },
+                "link": 41
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "LATENT",
+                "name": "LATENT",
+                "type": "LATENT",
+                "links": [
+                  42
+                ]
+              }
+            ],
+            "title": "Klein 9B sampler",
+            "properties": {
+              "Node name for S&R": "KSampler",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "widgets_values": [
+              20260903,
+              "fixed",
+              4,
+              1,
+              "euler",
+              "simple",
+              1
+            ],
+            "widgets_values_named": {
+              "seed": 20260903,
+              "control_after_generate": "fixed",
+              "steps": 4,
+              "cfg": 1,
+              "sampler_name": "euler",
+              "scheduler": "simple",
+              "denoise": 1
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 15,
+            "type": "VAEDecode",
+            "pos": [
+              1640,
+              238
+            ],
+            "size": [
+              460,
+              46
+            ],
+            "flags": {},
+            "order": 10,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "samples",
+                "name": "samples",
+                "type": "LATENT",
+                "link": 42
+              },
+              {
+                "localized_name": "vae",
+                "name": "vae",
+                "type": "VAE",
+                "link": 43
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "IMAGE",
+                "name": "IMAGE",
+                "type": "IMAGE",
+                "links": [
+                  45
+                ]
+              }
+            ],
+            "title": "Decode",
+            "properties": {
+              "Node name for S&R": "VAEDecode",
+              "cnr_id": "comfy-core",
+              "ver": "0.37.0"
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 16,
+            "type": "AUSBOSS_NODES_StitchInpaint",
+            "pos": [
+              1640,
+              354
+            ],
+            "size": [
+              460,
+              145
+            ],
+            "flags": {},
+            "order": 11,
+            "mode": 0,
+            "inputs": [
+              {
+                "localized_name": "stitcher",
+                "name": "stitcher",
+                "type": "AUSBOSS_STITCHER",
+                "link": 44
+              },
+              {
+                "localized_name": "inpainted",
+                "name": "inpainted",
+                "type": "IMAGE",
+                "link": 45
+              }
+            ],
+            "outputs": [
+              {
+                "localized_name": "image",
+                "name": "image",
+                "type": "IMAGE",
+                "links": [
+                  46
+                ]
+              },
+              {
+                "localized_name": "blend_mask",
+                "name": "blend_mask",
+                "type": "MASK",
+                "links": []
+              }
+            ],
+            "title": "Stitch Inpaint - Put the new part back",
+            "properties": {
+              "Node name for S&R": "AUSBOSS_NODES_StitchInpaint",
+              "cnr_id": "ausboss-nodes",
+              "ver": "2.4.0"
+            },
+            "widgets_values": [
+              false,
+              1,
+              "blend in"
+            ],
+            "widgets_values_named": {
+              "fix_edge_halo": false,
+              "color_match": 1,
+              "seam": "blend in"
+            },
+            "color": "#14424d",
+            "bgcolor": "#161f21"
+          },
+          {
+            "id": 33,
+            "type": "Reroute",
+            "pos": [
+              560,
+              208
+            ],
+            "size": [
+              75,
+              26
+            ],
+            "flags": {},
+            "order": 13,
+            "mode": 0,
+            "inputs": [
+              {
+                "name": "",
+                "type": "*",
+                "link": 28
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "STRING",
+                "links": [
+                  29
+                ]
+              }
+            ],
+            "properties": {
+              "showOutputText": false,
+              "horizontal": false
+            }
+          },
+          {
+            "id": 34,
+            "type": "Reroute",
+            "pos": [
+              1100,
+              208
+            ],
+            "size": [
+              75,
+              26
+            ],
+            "flags": {},
+            "order": 14,
+            "mode": 0,
+            "inputs": [
+              {
+                "name": "",
+                "type": "*",
+                "link": 40
+              }
+            ],
+            "outputs": [
+              {
+                "name": "",
+                "type": "INT",
+                "links": [
+                  41
+                ]
+              }
+            ],
+            "properties": {
+              "showOutputText": false,
+              "horizontal": false
+            }
+          },
+          {
+            "id": 35,
+            "type": "MarkdownNote",
+            "pos": [
+              20,
+              80
+            ],
+            "size": [
+              460,
+              88
+            ],
+            "flags": {},
+            "order": 0,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [],
+            "title": "Note",
+            "properties": {},
+            "widgets_values": [
+              "The canvas becomes the starting latent. Its mask marks the gray areas, so the sampler paints only there."
+            ],
+            "widgets_values_named": {
+              "text": "The canvas becomes the starting latent. Its mask marks the gray areas, so the sampler paints only there."
+            },
+            "color": "#1f2c38",
+            "bgcolor": "#2a3b4a"
+          },
+          {
+            "id": 36,
+            "type": "MarkdownNote",
+            "pos": [
+              560,
+              80
+            ],
+            "size": [
+              460,
+              88
+            ],
+            "flags": {},
+            "order": 1,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [],
+            "title": "Note",
+            "properties": {},
+            "widgets_values": [
+              "Klein reads the prompt with the canvas as a reference. At CFG 1 the negative side is not used."
+            ],
+            "widgets_values_named": {
+              "text": "Klein reads the prompt with the canvas as a reference. At CFG 1 the negative side is not used."
+            },
+            "color": "#1f2c38",
+            "bgcolor": "#2a3b4a"
+          },
+          {
+            "id": 37,
+            "type": "MarkdownNote",
+            "pos": [
+              1100,
+              80
+            ],
+            "size": [
+              460,
+              88
+            ],
+            "flags": {},
+            "order": 2,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [],
+            "title": "Note",
+            "properties": {},
+            "widgets_values": [
+              "4 steps, CFG 1, euler and simple: the settings for the distilled Klein 9B."
+            ],
+            "widgets_values_named": {
+              "text": "4 steps, CFG 1, euler and simple: the settings for the distilled Klein 9B."
+            },
+            "color": "#1f2c38",
+            "bgcolor": "#2a3b4a"
+          },
+          {
+            "id": 38,
+            "type": "MarkdownNote",
+            "pos": [
+              1640,
+              80
+            ],
+            "size": [
+              460,
+              88
+            ],
+            "flags": {},
+            "order": 3,
+            "mode": 0,
+            "inputs": [],
+            "outputs": [],
+            "title": "Note",
+            "properties": {},
+            "widgets_values": [
+              "Your image goes back on top. Blend in fades the new area into your image just inside the edge, and Tone match evens out its colour."
+            ],
+            "widgets_values_named": {
+              "text": "Your image goes back on top. Blend in fades the new area into your image just inside the edge, and Tone match evens out its colour."
+            },
+            "color": "#1f2c38",
+            "bgcolor": "#2a3b4a"
+          }
+        ],
+        "groups": [
+          {
+            "id": 7,
+            "title": "1 · Set up the painting",
+            "bounding": [
+              0,
+              0,
+              500,
+              428
+            ],
+            "color": "#1d5560",
+            "flags": {}
+          },
+          {
+            "id": 8,
+            "title": "2 · Prompt and reference",
+            "bounding": [
+              540,
+              0,
+              500,
+              748
+            ],
+            "color": "#1d5560",
+            "flags": {}
+          },
+          {
+            "id": 9,
+            "title": "3 · Paint",
+            "bounding": [
+              1080,
+              0,
+              500,
+              586
+            ],
+            "color": "#1d5560",
+            "flags": {}
+          },
+          {
+            "id": 10,
+            "title": "4 · Put it back",
+            "bounding": [
+              1620,
+              0,
+              500,
+              529
+            ],
+            "color": "#1d5560",
+            "flags": {}
+          }
+        ],
+        "links": [
+          {
+            "id": 24,
+            "origin_id": -10,
+            "origin_slot": 0,
+            "target_id": 6,
+            "target_slot": 0,
+            "type": "IMAGE"
+          },
+          {
+            "id": 25,
+            "origin_id": -10,
+            "origin_slot": 6,
+            "target_id": 6,
+            "target_slot": 1,
+            "type": "VAE"
+          },
+          {
+            "id": 26,
+            "origin_id": 6,
+            "origin_slot": 0,
+            "target_id": 21,
+            "target_slot": 0,
+            "type": "LATENT"
+          },
+          {
+            "id": 27,
+            "origin_id": -10,
+            "origin_slot": 1,
+            "target_id": 21,
+            "target_slot": 1,
+            "type": "MASK"
+          },
+          {
+            "id": 28,
+            "origin_id": -10,
+            "origin_slot": 3,
+            "target_id": 33,
+            "target_slot": 0,
+            "type": "STRING"
+          },
+          {
+            "id": 29,
+            "origin_id": 33,
+            "origin_slot": 0,
+            "target_id": 9,
+            "target_slot": 1,
+            "type": "STRING"
+          },
+          {
+            "id": 30,
+            "origin_id": -10,
+            "origin_slot": 5,
+            "target_id": 9,
+            "target_slot": 0,
+            "type": "CLIP"
+          },
+          {
+            "id": 31,
+            "origin_id": 9,
+            "origin_slot": 0,
+            "target_id": 10,
+            "target_slot": 0,
+            "type": "CONDITIONING"
+          },
+          {
+            "id": 32,
+            "origin_id": 6,
+            "origin_slot": 0,
+            "target_id": 10,
+            "target_slot": 1,
+            "type": "LATENT"
+          },
+          {
+            "id": 33,
+            "origin_id": 9,
+            "origin_slot": 0,
+            "target_id": 11,
+            "target_slot": 0,
+            "type": "CONDITIONING"
+          },
+          {
+            "id": 34,
+            "origin_id": 11,
+            "origin_slot": 0,
+            "target_id": 12,
+            "target_slot": 0,
+            "type": "CONDITIONING"
+          },
+          {
+            "id": 35,
+            "origin_id": 6,
+            "origin_slot": 0,
+            "target_id": 12,
+            "target_slot": 1,
+            "type": "LATENT"
+          },
+          {
+            "id": 36,
+            "origin_id": -10,
+            "origin_slot": 7,
+            "target_id": 14,
+            "target_slot": 0,
+            "type": "MODEL"
+          },
+          {
+            "id": 37,
+            "origin_id": 10,
+            "origin_slot": 0,
+            "target_id": 14,
+            "target_slot": 1,
+            "type": "CONDITIONING"
+          },
+          {
+            "id": 38,
+            "origin_id": 12,
+            "origin_slot": 0,
+            "target_id": 14,
+            "target_slot": 2,
+            "type": "CONDITIONING"
+          },
+          {
+            "id": 39,
+            "origin_id": 21,
+            "origin_slot": 0,
+            "target_id": 14,
+            "target_slot": 3,
+            "type": "LATENT"
+          },
+          {
+            "id": 40,
+            "origin_id": -10,
+            "origin_slot": 4,
+            "target_id": 34,
+            "target_slot": 0,
+            "type": "INT"
+          },
+          {
+            "id": 41,
+            "origin_id": 34,
+            "origin_slot": 0,
+            "target_id": 14,
+            "target_slot": 4,
+            "type": "INT"
+          },
+          {
+            "id": 42,
+            "origin_id": 14,
+            "origin_slot": 0,
+            "target_id": 15,
+            "target_slot": 0,
+            "type": "LATENT"
+          },
+          {
+            "id": 43,
+            "origin_id": -10,
+            "origin_slot": 6,
+            "target_id": 15,
+            "target_slot": 1,
+            "type": "VAE"
+          },
+          {
+            "id": 44,
+            "origin_id": -10,
+            "origin_slot": 2,
+            "target_id": 16,
+            "target_slot": 0,
+            "type": "AUSBOSS_STITCHER"
+          },
+          {
+            "id": 45,
+            "origin_id": 15,
+            "origin_slot": 0,
+            "target_id": 16,
+            "target_slot": 1,
+            "type": "IMAGE"
+          },
+          {
+            "id": 46,
+            "origin_id": 16,
+            "origin_slot": 0,
+            "target_id": -20,
+            "target_slot": 0,
+            "type": "IMAGE"
+          }
+        ],
+        "extra": {}
+      }
+    ]
+  },
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.62,
+      "offset": [
+        463,
+        20
+      ]
+    },
+    "frontendVersion": "1.53.6"
+  },
+  "version": 0.4
+}

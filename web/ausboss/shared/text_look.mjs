@@ -1,0 +1,69 @@
+// The Text node's two looks, chosen per node from the gear on its card: the
+// usual text box (the default), or "big", a word or two in large centred
+// letters that are easy to spot, for a label typed over a picture. Integer
+// and Float take the same two looks, kept in the same property: big is one
+// large centred number, for a setting people change on every run.
+//
+// The choice is kept in the node's properties, so it is saved with the
+// workflow and nothing else changes: the node's inputs, its saved widget
+// values and the prompt it sends are the same in both looks, and a pack that
+// does not know the property shows the usual box.
+//
+// The data and decisions only (tests/text_look.test.mjs); the card
+// (js/shared/widget_card.mjs) draws the look and js/widget_cards/index.js
+// puts the gear on the Text node's card.
+
+export const TEXT_LOOK_PROPERTY = "ausboss_text_look";
+export const TEXT_LOOKS = ["normal", "big"];
+
+// The node's look: "big" only when the node says so, else "normal".
+export function textLook(node) {
+  return node?.properties?.[TEXT_LOOK_PROPERTY] === "big" ? "big" : "normal";
+}
+
+// Keep a look on the node. The usual box leaves no property behind, so a
+// node set back to it is saved exactly as one that was never changed.
+export function setTextLook(node, look) {
+  if (!node) return "normal";
+  node.properties ??= {};
+  if (look === "big") node.properties[TEXT_LOOK_PROPERTY] = "big";
+  else delete node.properties[TEXT_LOOK_PROPERTY];
+  return textLook(node);
+}
+
+// The gear menu (js/shared/settings_menu.mjs). persist: false - the look
+// belongs to this node and is never a default for new ones.
+export const TEXT_LOOK_MENU = [
+  {
+    key: "look",
+    label: "Look",
+    type: "choice",
+    options: TEXT_LOOKS,
+    default: "normal",
+    persist: false,
+    hint: "这个框怎么显示文字。保存在本节点上。",
+    optionHints: {
+      normal: "普通文本框，适合提示词和较长的文字。",
+      big: "居中大字，适合一眼就要看到的一两个词。",
+    },
+  },
+];
+
+// The same choice on Integer and Float, said for a number.
+export const NUMBER_LOOK_MENU = [
+  {
+    ...TEXT_LOOK_MENU[0],
+    hint: "这个框怎么显示数字。保存在本节点上。",
+    optionHints: {
+      normal: "带标签的普通数字框。",
+      big: "一个居中大字数字，适合每次运行都要改的设置。",
+    },
+  },
+];
+
+// Room the gear takes from the card's control column. The usual box keeps
+// the gear beside it; the big field spans the card and the gear sits in its
+// top corner instead.
+export function textLookCornerReserve(look) {
+  return look === "big" ? 0 : 30;
+}

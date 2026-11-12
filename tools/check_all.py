@@ -1,8 +1,10 @@
 """一个命令跑完所有能自动化的检查。
 
 当前包含：
-  1. check_load.py —— 按 ComfyUI 的加载流程验证插件与节点注册
-  2. check_js.py    —— 前端静态检查（括号配平、import 路径）
+  1. check_load.py    —— 按 ComfyUI 的加载流程验证插件与节点注册
+  2. check_js.py       —— 前端静态检查（括号配平、import 路径）
+  3. check_ausboss.py  —— 并入的 AusBoss 移植包：语法、加载、中文数据覆盖率、
+                          汉化层行为、前端 import 深度、帮助文档
 
 浏览器里的实际渲染、真实出图不在自动化范围内，改前端后仍需人工确认。
 
@@ -31,6 +33,7 @@ def main() -> int:
     for filename, label in (
         ("check_load.py", "插件加载 / 节点注册"),
         ("check_js.py", "前端静态检查"),
+        ("check_ausboss.py", "AusBoss 移植包"),
     ):
         print("=" * 60)
         print(f"▶ {label}  ({filename})")

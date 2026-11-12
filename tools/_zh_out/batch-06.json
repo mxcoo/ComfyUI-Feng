@@ -1,0 +1,122 @@
+{
+  "NODES": {
+    "AUSBOSS_NODES_PromptVariations": {
+      "name": "提示词变体 🆎",
+      "description": "一个每次运行都会变的提示词框。用花括号写候选，例如 a {红|蓝|绿} {毛衣|夹克}，节点会从每一组里挑一个。挑哪个由种子决定：同一个种子会再次给出同一句提示词，每次运行换新种子就得到新的组合。不带括号的文字原样输出。",
+      "outputs": [
+        "提示词"
+      ],
+      "tooltips": {
+        "text": "你的提示词。把候选写在花括号里、用 | 分隔，例如 {背心|毛衣|衬衫}，每组会挑一个。",
+        "seed": "接入采样器用的那个种子。换新种子就挑新的组合；同一个种子会再挑到同样的那几个。"
+      }
+    },
+    "AUSBOSS_NODES_RealignToSource": {
+      "name": "与源图重新对齐（实验性 🧪） 🆎",
+      "description": "实验性。把编辑后的图片重新对回原图。Qwen Image 2.1 画出来的编辑常常略微放大或偏移，水彩、动漫这类风格转换尤其明显，编辑结果就不再压在原图的位置上。这个节点测出它偏了多少，再挪回去。效果最好的做法：编辑前先用 Load Image + Pad 给图片扩边，再把它的拼接器接到这里，这样编辑有余量可动，画面一直到边缘都是真实内容。",
+      "outputs": [
+        "图像",
+        "空白遮罩",
+        "报告"
+      ],
+      "tooltips": {
+        "edited": "编辑后的图片。",
+        "source": "你编辑的那张原图，尺寸是编辑模型看到它时的大小。结果按这个尺寸输出。",
+        "fit": "zoom + shift 修掉 Qwen 常见的漂移。affine 还能修掉轻微的倾斜。",
+        "empty_fill": "如果编辑滑出了边缘，会留下一条空出来的窄边。edge 把最近的像素拉伸进去，source 用原图补上，gray 填成纯灰，方便后续局部重绘。",
+        "max_zoom": "最多撤销多大的放大，单位是百分比。超过这个值就当成你有意做的改动，原样保留。",
+        "stitcher": "可选。如果你在编辑前给图片扩过边，把 Load Image + Pad 🆎 的拼接器接进来。取回图片时会去掉扩边，不会留下空边。"
+      }
+    },
+    "AUSBOSS_NODES_RefineMask": {
+      "name": "遮罩精修 🆎",
+      "description": "用一遍固定顺序的处理把遮罩收拾干净：扩缩（按整像素放大或收缩）、填补封闭空洞（全部填，或只填不超过 max_hole_size 的）、平滑（把阶梯锯齿化开，但不做羽化）、用高斯模糊羽化、对照可选的 guide_image 做边缘精修（导向滤波或 alpha matting），最后用 black_point/white_point 重映射色阶，清掉灰色的雾边。输出精修后的遮罩和它的反相。",
+      "outputs": [
+        "遮罩",
+        "反相遮罩"
+      ],
+      "tooltips": {
+        "mask": "BHW 遮罩；白色是选中的区域。",
+        "expand": "把遮罩放大（+）或收缩（-）的像素数。",
+        "blur": "高斯羽化的强度，单位像素；0 保持硬边。",
+        "fill_holes": "在羽化之前，把遮罩内部完全封闭的空隙填上。",
+        "smooth": "按这个像素数化开阶梯锯齿，同时保持硬边；0 为关闭。在羽化模糊之前执行。",
+        "black_point": "小于等于这个值的遮罩取值变成纯黑；用来清掉主体外围淡淡的灰雾。最后应用。",
+        "white_point": "大于等于这个值的遮罩取值变成纯白；让遮罩核心更实。最后应用。",
+        "edge_refine": "把遮罩边缘吸附到 guide_image 上。'guided filter' 是快速的边缘感知滤波（需要 opencv-contrib-python）；'matting' 在边缘附近求解闭式 alpha matting（需要 pymatting）。两者都要求接上 guide_image 输入。",
+        "preview": "在节点上显示这个节点的结果。关闭时不再往 ComfyUI 的 temp 目录写预览文件。",
+        "guide_image": "遮罩对应的 RGB 帧；edge_refine 选 'guided filter' 或 'matting' 时必须提供。",
+        "max_hole_size": "填补空洞能填的最大空洞，按占整张图的百分比算。2 会填掉快速涂抹留下的缝隙，但会保留你故意没涂的人或宠物；0 填掉所有空洞。"
+      }
+    },
+    "AUSBOSS_NODES_Resolution": {
+      "name": "Latent 尺寸 🆎",
+      "description": "画布尺寸选择器：比例胶囊选形状，实时画布上可以直接拖动矩形的边和角，尺寸阶梯给出当前比例下对齐网格的档位——吸附到对 VAE 友好的整数倍，比例锁既保持精确又落在网格上。把宽度和高度按 INT 输出，同时输出一个该尺寸的空 LATENT，可以直接接采样器；Latent 族（SD3 / Flux / Krea 2 / Qwen / Z-Image 用 16ch，SD1.5 / SDXL 用 4ch，Flux 2 Klein 用 128ch）和批次大小放在面板的齿轮里。",
+      "outputs": [
+        "宽度",
+        "高度",
+        "Latent"
+      ],
+      "tooltips": {
+        "width": "输出的宽度，单位像素。由面板设置；手动输入的数值不会被重新吸附。",
+        "height": "输出的高度，单位像素。由面板设置；手动输入的数值不会被重新吸附。",
+        "latent": "LATENT 输出使用的 Latent 族。16ch：SD3、Flux 1、Krea 2、Qwen Image、Z-Image。4ch：SD 1.5 和 SDXL。128ch：Flux 2（Klein）。在面板的齿轮里设置。",
+        "batch_size": "生成多少个 Latent。在面板的齿轮里设置。",
+        "workflow_sizes": "在齿轮菜单里设置的工作流分辨率。严格模式连通过连线接进来的尺寸也一起校验。"
+      }
+    },
+    "AUSBOSS_NODES_RunTimer": {
+      "name": "运行计时器 🆎",
+      "description": "整个运行的秒表。排队的提示词开始执行时它开始走，运行时在节点上跳动，结束时停住并保留总时长。右键能看到之前几次运行的时长，方便拿改了设置后的结果和上一次对比。时间随工作流一起保存，分享出去的图会带着作者的运行时长作参考。没有输入也没有输出；它监听队列，而不是挂在连线上。",
+      "outputs": [],
+      "tooltips": {}
+    },
+    "AUSBOSS_NODES_SaveImage": {
+      "name": "保存图像 🆎",
+      "description": "把 IMAGE 批次保存为 PNG、无损 WebP 或无损 JPEG XL，工作流可以嵌进去，也可以特意不嵌。文件名要么在这里拼出来——前缀加上你打开的标签（日期、时间、尺寸、防冲突的计数器、批次号）——要么由 filename 输入原样给出，这样编辑或打标这一轮能沿用源文件的文件名。说明文字不为空时，写出一个同名的 .txt 旁挂文件，凑成数据集打标的一对。",
+      "outputs": [
+        "文件路径",
+        "图像"
+      ],
+      "tooltips": {
+        "images": "BHWC 批次；里面的每一帧都会被保存。",
+        "filename_prefix": "本地文件名，可以带子目录：名称标签（日期、时间、尺寸、计数器、批次）会追加在它后面。filename 接了线或设了 exact_name 时忽略此项。",
+        "format": "png 到处都能存，并保留透明通道。webp lossless 通常比 png 小，同样保留透明通道。jxl lossless 体积最小；需要在 ComfyUI 的 python 里装可选的 pillow-jxl-plugin，而且很少有浏览器能预览。",
+        "save_metadata": "打开时把提示词和工作流嵌进文件（PNG 用文本块，webp 和 jxl 用 EXIF），文件拖回 ComfyUI 就能还原。关闭时写出干净的文件，里面没有工作流——适合分享或做数据集。",
+        "exact_name": "就用这个文件名保存——不加任何标签。值里带的图片扩展名会被换成所选格式自己的扩展名。允许子目录；批次会追加 _001、_002……留空则改用 filename_prefix 拼名字。filename 输入接了线时以它为准。",
+        "on_existing": "保存目标已有同名文件时的动作：overwrite 会直接覆盖掉它，skip 保留原文件、跳过这次保存，error 中止运行。只有在关掉计数器、用了固定文件名或接了 filename 时才会遇到——计数器不会撞名。",
+        "output_dir": "保存到 ComfyUI 输出目录下的哪个子目录，例如 sets/portraits；不存在会自动创建。留空则直接存进输出目录本身。保存图像不会写到输出目录之外。",
+        "caption": "不为空时，把这段文字写成 UTF-8 的 .txt 旁挂文件，与每张保存的图像同名。caption_text 输入优先。",
+        "filename": "上游传来的准确文件名（Load Image 的名字、打标工具的 id）。它的图片扩展名会换成所选格式的；不加任何标签；批次会追加 _001、_002……接了线但值为空时会中止运行，而不是随便编个名字存下去。",
+        "caption_text": "上游来的说明文字：存成 .txt，放在同一目录、与图像同名（portrait.png -> portrait.txt）。为空则不写旁挂文件。",
+        "name_counter": "追加下一个可用的五位数字。打开时不会撞名；关闭时会复用同一路径，覆盖已有文件。",
+        "name_date": "追加本地保存日期，格式 YYYY-MM-DD。",
+        "name_time": "追加本地保存时间，格式 HH-mm-ss。",
+        "name_size": "追加图像尺寸，格式 WIDTHxHEIGHT，例如 1024x1024。",
+        "name_batch": "图像是批次时追加 b001、b002……，这样能看出每张图在这次运行里的位置。单张图像不加。",
+        "preview": "在节点上显示保存的图像。只影响显示：文件照存，队列里也照样列出。",
+        "step_preview": "生成过程中在这里逐步显示画面，并带一个停止按钮。只影响显示：保存的内容不变。打开后这次运行会向 ComfyUI 要每一步的图，除非你在 ComfyUI 设置里已经选了预览方式。",
+        "autosave": "打开：每次运行都保存图片。关闭：图片只显示在节点上，用节点上的保存按钮留下想要的那些。"
+      }
+    },
+    "AUSBOSS_NODES_SaveVideo": {
+      "name": "保存视频 🆎",
+      "description": "把帧批次保存为 mp4（h264/h265，CPU 或 NVENC）、webm（vp9/av1）、ProRes mov、无损 ffv1 mkv、gif 或 webp——可以混入音频、把工作流嵌进文件，拖回 ComfyUI 就能还原。pingpong 让片段来回播放，做成无缝循环。想保住源视频的时序，就把 Load Video 🆎 的 fps 直接接进来；也可以接一个核心的 VIDEO，改为编码整段视频。",
+      "outputs": [
+        "文件路径"
+      ],
+      "tooltips": {
+        "fps": "播放帧率；接上 Load Video 的 fps 输出就能和源视频一致。接了 video 输入时以它自带的帧率为准，会覆盖这个控件。像 23.976、29.97 这样的小数帧率可以直接填。",
+        "filename_prefix": "保存在输出目录下；子目录会自动创建。",
+        "crf": "编码质量：数值越低画质越好、文件越大。h264 下 19 视觉上无损；h265 和 vp9 用同一套刻度（vp9 可以高几个点）。",
+        "frames": "要编码的 BHWC 帧批次。接了 video 时不需要。",
+        "audio": "可选，混进文件里的音轨，例如 Load Video 的音频输出。",
+        "video": "可选的核心 VIDEO。接上后，它的画面和音频会取代 frames、audio 输入，它自带的帧率也优先于 fps 控件；控件帧率与之不同时会往控制台打一条日志。ComfyUI 核心会先把整个文件解码进内存，这个节点才见到第一帧：这一阶段不报进度，点取消也不会停，取消要等编码开始后才生效。改成接 frames，则整段运行都可以中断。",
+        "format": "容器与编码器。mp4 h264 到处都能播；mp4 h265 在支持的地方同画质体积减半；带 nvenc 的两个在 NVIDIA GPU 上编码而不是 CPU（快很多，体积略大）；webm vp9 和 webm av1 适合网页，音频混成 Opus；mov prores 是 ProRes HQ 的剪辑母版；mkv ffv1 是逐位无损，文件很大。gif 和 webp 没有声音、无限循环，而且所有帧都放在内存里——只适合很短的片段。",
+        "pingpong": "先正放再倒放，做出无缝循环。帧数和编码时间大约翻倍；折返处不重复首帧和末帧。",
+        "save_metadata": "把提示词和工作流嵌进文件，mp4 拖回画布就能还原节点图。关闭后分享出去的文件里没有你的提示词和节点图。gif 和 webp 从不带元数据。",
+        "step_preview": "生成过程中在这里逐步显示片段的首帧，并带一个停止按钮。只影响显示：保存的内容不变。打开后这次运行会向 ComfyUI 要每一步的图，除非你在 ComfyUI 设置里已经选了预览方式。"
+      }
+    }
+  }
+}

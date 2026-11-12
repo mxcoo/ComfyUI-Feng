@@ -1,0 +1,116 @@
+{
+ "batch": 2,
+ "messages": [
+  {
+   "text": "Presets: ⟦0⟧ is not valid JSON (⟦1⟧); using built-in aspect ratios."
+  },
+  {
+   "text": "Presets: ⟦0⟧ needs a crop_aspect_ratios list; using built-in aspect ratios."
+  },
+  {
+   "text": "Realign to Source: unknown empty_fill '⟦0⟧'."
+  },
+  {
+   "text": "Realign to Source: unknown fit '⟦0⟧'."
+  },
+  {
+   "text": "Save Image: on_existing must be one of ⟦0⟧."
+  },
+  {
+   "text": "Save Image: unknown format '⟦0⟧'."
+  },
+  {
+   "text": "Say what Picture ⟦0⟧'s person looks like, or remove its looks like line."
+  },
+  {
+   "text": "Split Batch needs at least 2 frames to split, but this batch contains ⟦0⟧."
+  },
+  {
+   "text": "Stitch Inpaint: edge-halo spread failed (⟦0⟧)."
+  },
+  {
+   "text": "Stitch Inpaint: paste_onto must be 'crop' or 'original', not ⟦0⟧."
+  },
+  {
+   "text": "Stitch Inpaint: seam must be 'classic' or 'blend in', not ⟦0⟧."
+  },
+  {
+   "text": "The bboxes input needs a list of boxes or prompt elements, not a list of ⟦0⟧."
+  },
+  {
+   "text": "The text on the bboxes input is not valid JSON (⟦0⟧)."
+  },
+  {
+   "text": "This video is no longer in ComfyUI's ⟦0⟧ folder: ⟦1⟧"
+  },
+  {
+   "text": "Transform: input 'image' expected a BHWC batch, received ⟦0⟧."
+  },
+  {
+   "text": "Transform: input '⟦0⟧' expected 0..⟦1⟧, received ⟦2⟧."
+  },
+  {
+   "text": "Transform: source dimensions must be at most ⟦0⟧ pixels per side."
+  },
+  {
+   "text": "Unsupported video extension: ⟦0⟧."
+  },
+  {
+   "text": "[AusBoss] Free Memory: ⟦0⟧."
+  },
+  {
+   "text": "[AusBoss] LaMa frame previews unavailable: ⟦0⟧"
+  },
+  {
+   "text": "[AusBoss] Layout Boxes: background not shown on the node (⟦0⟧)."
+  },
+  {
+   "text": "[AusBoss] Load Image + Pad: stage preview unavailable (⟦0⟧)."
+  },
+  {
+   "text": "[AusBoss] Stitch Inpaint: ⟦0⟧"
+  },
+  {
+   "text": "[AusBoss] ⟦0⟧"
+  },
+  {
+   "text": "[AusBoss] ⟦0⟧: preview unavailable (⟦1⟧)."
+  },
+  {
+   "text": "interpolation must be one of ⟦0⟧, got '⟦1⟧'."
+  },
+  {
+   "text": "keep_proportion must be one of ⟦0⟧, got '⟦1⟧'."
+  },
+  {
+   "text": "target_mode must be one of ⟦0⟧, got '⟦1⟧'."
+  },
+  {
+   "text": "⟦0⟧ ends before the second it should start from. Pick an earlier start."
+  },
+  {
+   "text": "⟦0⟧ may not contain '..'."
+  },
+  {
+   "text": "⟦0⟧ must be a relative name, not a rooted path."
+  },
+  {
+   "text": "⟦0⟧ must be an HxWx3 picture."
+  },
+  {
+   "text": "⟦0⟧ must be ⟦1⟧x⟦2⟧, got ⟦3⟧x⟦4⟧."
+  },
+  {
+   "text": "⟦0⟧ must be ⟦1⟧x⟦2⟧, the size of the flat picture."
+  },
+  {
+   "text": "⟦0⟧ needs start_seconds smaller than end_seconds."
+  },
+  {
+   "text": "⟦0⟧ requires ComfyUI's folder_paths at runtime."
+  },
+  {
+   "text": "⟦0⟧: could not parse '⟦1⟧'; using mid-gray 128,128,128."
+  }
+ ]
+}

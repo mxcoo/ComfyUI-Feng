@@ -1,0 +1,136 @@
+// Pure resolution rules for the upstream-input preview panel. DOM-free so
+// node:test covers them without a browser; the wiring lives in
+// js/input_preview/index.js.
+//
+// Best-effort order for a connected source node:
+//   1. cached execution previews (sourceNode.imgs[0].src)
+//   2. an uploadable image/video file combo widget -> deterministic /view query
+//   3. nothing -> the caller shows a quiet placeholder
+
+import { parseImageReference } from "./pad_canvas.mjs";
+import { splitMediaName } from "./video_preview.mjs";
+
+// Core loader nodes keep the uploaded file name in a combo widget with one of
+// these names (LoadImage uses "image", video loaders use "video").
+const FILE_WIDGET_NAMES = new Set(["image", "video"]);
+
+// Graph link stores differ by frontend generation: a Map on the modern
+// frontend, a plain id-keyed object on legacy LiteGraph.
+export function linkById(graph, linkId) {
+  const links = graph?.links;
+  if (links == null || linkId == null) return null;
+  const link = typeof links.get === "function" ? links.get(linkId) : links[linkId];
+  return link ?? null;
+}
+
+// Walk the named input's link back to the node feeding it, or null.
+export function upstreamNode(node, inputName) {
+  const graph = node?.graph;
+  if (!graph) return null;
+  const input = node.inputs?.find((candidate) => candidate?.name === inputName);
+  const link = linkById(graph, input?.link);
+  if (!link) return null;
+  return graph.getNodeById?.(link.origin_id) ?? null;
+}
+
+// The widget whose callback fires when the user picks a different file.
+export function sourceFileWidget(sourceNode) {
+  return sourceNode?.widgets?.find((widget) => FILE_WIDGET_NAMES.has(widget?.name)) ?? null;
+}
+
+// Deterministic /view query (no cache buster) for a file widget's name,
+// tolerating Windows separators. A name without a tag is in the input
+// folder; "photo.png [output]" or "[temp]" is read from that folder.
+export function viewQueryForFile(name) {
+  const { filename, subfolder } = splitMediaName(name);
+  const type = parseImageReference(name)?.type ?? "input";
+  return new URLSearchParams({ filename, subfolder, type }).toString();
+}
+
+// Describe how to preview a source node:
+//   { kind: "url", url }                    cached preview image
+//   { kind: "view", isVideo, query }        file widget, serve via api /view
+//   null                                    nothing resolvable
+export function describeSourcePreview(sourceNode) {
+  if (!sourceNode) return null;
+  const cached = sourceNode.imgs?.[0]?.src;
+  if (typeof cached === "string" && cached) return { kind: "url", url: cached };
+  const widget = sourceFileWidget(sourceNode);
+  if (widget && typeof widget.value === "string" && widget.value) {
+    return {
+      kind: "view",
+      isVideo: widget.name === "video",
+      query: viewQueryForFile(widget.value),
+    };
+  }
+  return null;
+}
+
+// The node's own latest result, if it has produced one.
+//
+// imgs is where the frontend leaves both the streamed progress frames of a
+// running node and the images from its ui payload, so the last entry is the
+// most recent thing this node made. The panel prefers it over the upstream
+// input for the obvious reason: once a node has a result, its result is what
+// you want to look at.
+export function describeOwnResult(node) {
+  const images = node?.imgs;
+  if (!Array.isArray(images) || images.length === 0) return null;
+  const src = images[images.length - 1]?.src;
+  return typeof src === "string" && src ? { kind: "url", url: src } : null;
+}
+
+// The key the frontend files a node's outputs under (app.nodeOutputs): the
+// node's id in the root graph, "<subgraph id>:<id>" inside a subgraph.
+export function outputLocatorId(node) {
+  const graph = node?.graph;
+  if (!graph || node.id == null) return null;
+  const root = graph.rootGraph ?? graph;
+  return graph !== root && graph.id ? `${graph.id}:${node.id}` : String(node.id);
+}
+
+// The /view query for an image in a node's output record
+// ({ images: [{ filename, subfolder, type }] }): the newest one, or the one
+// at `index` when given. Null when it has none.
+// Nodes 2.0 fills node.imgs only from its own output preview, which the panel
+// stands down, so there this record is the node's result.
+export function outputRecordQuery(record, index = null) {
+  const images = record?.images;
+  const count = outputRecordCount(record);
+  const at = Number.isInteger(index) && index >= 0 && index < count ? index : count - 1;
+  const image = count ? images[at] : null;
+  if (!image || typeof image.filename !== "string" || !image.filename) return null;
+  return new URLSearchParams({
+    filename: image.filename,
+    subfolder: image.subfolder ?? "",
+    type: image.type ?? "output",
+  }).toString();
+}
+
+// How many pictures the node's last run left in its output record.
+export function outputRecordCount(record) {
+  return Array.isArray(record?.images) ? record.images.length : 0;
+}
+
+// What the panel shows, best first: this node's result (node.imgs, then the
+// URL of its stored output), then whatever feeds it, then nothing.
+export function describeNodePreview(node, inputName, storedUrl = null) {
+  return describeOwnResult(node)
+    ?? (storedUrl ? { kind: "url", url: storedUrl } : null)
+    ?? describeSourcePreview(upstreamNode(node, inputName));
+}
+
+// Quiet ASCII placeholder copy; never an error. `running`: a run is on its
+// way to this node, which shows its steps ("steps") or only the result.
+export function placeholderText(connected, noun = "图片", running = false) {
+  if (!connected) return `Connect ${noun} 就能在这里看到`;
+  if (running === "steps") return "正在运行。图片一开始生成，步骤就显示在这里";
+  if (running) return "正在运行。图片保存后会显示在这里";
+  return "运行工作流就能在这里看到";
+}
+
+// The node ran while its preview was off, so its last picture is older
+// than its result.
+export function staleText() {
+  return "再运行一次工作流就能在这里看到";
+}

@@ -1,0 +1,462 @@
+{
+ "messages": [
+  {
+   "text": "⟦0⟧ expected a BHWC IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_batch_helpers.py:11",
+    "ausboss/nodes/_inpaint_crop_helpers.py:204",
+    "ausboss/nodes/_preview_helpers.py:47",
+    "ausboss/nodes/node_tiled_upscale.py:29"
+   ]
+  },
+  {
+   "text": "Math Expression does not allow the ⟦0⟧ operator.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:116",
+    "ausboss/nodes/_math_helpers.py:123"
+   ]
+  },
+  {
+   "text": "Transform: frame ⟦0⟧ produced dimensions that differ from frame 0.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:392",
+    "ausboss/nodes/_transform_engine.py:473"
+   ]
+  },
+  {
+   "text": "⟦0⟧ expected a BHW MASK.",
+   "sites": [
+    "ausboss/nodes/_inpaint_crop_helpers.py:214",
+    "ausboss/nodes/_preview_helpers.py:66"
+   ]
+  },
+  {
+   "text": "⟦0⟧ has no sound in it.",
+   "sites": [
+    "ausboss/nodes/_audio_trim_helpers.py:114",
+    "ausboss/nodes/_audio_trim_helpers.py:144"
+   ]
+  },
+  {
+   "text": "⟦0⟧ received an empty IMAGE batch.",
+   "sites": [
+    "ausboss/nodes/_batch_helpers.py:14",
+    "ausboss/nodes/_preview_helpers.py:49"
+   ]
+  },
+  {
+   "text": "A PSD here holds 1 to ⟦0⟧ layers.",
+   "sites": [
+    "ausboss/nodes/_psd_helpers.py:95"
+   ]
+  },
+  {
+   "text": "A PSD holds pictures up to ⟦0⟧ px a side.",
+   "sites": [
+    "ausboss/nodes/_psd_helpers.py:92"
+   ]
+  },
+  {
+   "text": "Align Image mode must be one of ⟦0⟧, not '⟦1⟧'.",
+   "sites": [
+    "ausboss/nodes/_align_helpers.py:110"
+   ]
+  },
+  {
+   "text": "Align Image pad_fill must be one of ⟦0⟧, not '⟦1⟧'.",
+   "sites": [
+    "ausboss/nodes/_align_helpers.py:157"
+   ]
+  },
+  {
+   "text": "Describe Picture ⟦0⟧ once, in one looks like line.",
+   "sites": [
+    "ausboss/nodes/_h3_cast_helpers.py:152"
+   ]
+  },
+  {
+   "text": "Fixed frames needs ⟦0⟧s but the source is only ⟦1⟧s. Reduce Fixed frames.",
+   "sites": [
+    "ausboss/nodes/_video_load_helpers.py:161"
+   ]
+  },
+  {
+   "text": "Image Compare: at most ⟦0⟧ points in one mix.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:117"
+   ]
+  },
+  {
+   "text": "Image Compare: at most ⟦0⟧ points in one stroke.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:114"
+   ]
+  },
+  {
+   "text": "Image Compare: at most ⟦0⟧ strokes in one mix.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:104"
+   ]
+  },
+  {
+   "text": "Image Compare: pictures up to ⟦0⟧ px a side can be mixed.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:356"
+   ]
+  },
+  {
+   "text": "Image Compare: ⟦0⟧ must be a number.",
+   "sites": [
+    "ausboss/nodes/_compare_helpers.py:89"
+   ]
+  },
+  {
+   "text": "Image Folder: From must be one of ⟦0⟧, not '⟦1⟧'.",
+   "sites": [
+    "ausboss/nodes/node_image_folder.py:45"
+   ]
+  },
+  {
+   "text": "Latent Size: ⟦0⟧×⟦1⟧ is outside the workflow's allowed sizes: ⟦2⟧.",
+   "sites": [
+    "ausboss/nodes/node_resolution.py:68"
+   ]
+  },
+  {
+   "text": "LoRA file not found in models/loras: ⟦0⟧",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:156"
+   ]
+  },
+  {
+   "text": "LoRA name matches several files in models/loras: ⟦0⟧",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:153"
+   ]
+  },
+  {
+   "text": "LoRA path escapes the loras folders: ⟦0⟧",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:163"
+   ]
+  },
+  {
+   "text": "LoRA stack is not valid JSON: ⟦0⟧",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:47"
+   ]
+  },
+  {
+   "text": "LoRA stack row ⟦0⟧ must be an object.",
+   "sites": [
+    "ausboss/nodes/_lora_helpers.py:53"
+   ]
+  },
+  {
+   "text": "Load Image + Pad: source_image has ⟦0⟧ channels.",
+   "sites": [
+    "ausboss/nodes/node_load_image_pad.py:66"
+   ]
+  },
+  {
+   "text": "Mask by Touch: asking SAM 3 the quick way is off (⟦0⟧); answers are the same, only slower.",
+   "sites": [
+    "ausboss/nodes/node_mask_by_touch.py:590"
+   ]
+  },
+  {
+   "text": "Mask by Touch: the node's picture is unavailable (⟦0⟧).",
+   "sites": [
+    "ausboss/nodes/node_mask_by_touch.py:1125"
+   ]
+  },
+  {
+   "text": "Math Expression allows only numbers, not ⟦0⟧ literals.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:103"
+   ]
+  },
+  {
+   "text": "Math Expression could not be parsed: ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:158"
+   ]
+  },
+  {
+   "text": "Math Expression does not allow keyword arguments to ⟦0⟧().",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:80"
+   ]
+  },
+  {
+   "text": "Math Expression does not allow ⟦0⟧ syntax.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:133"
+   ]
+  },
+  {
+   "text": "Math Expression knows only the names a, b and c, not ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:109"
+   ]
+  },
+  {
+   "text": "Math Expression: ⟦0⟧() takes ⟦1⟧ argument(s), got ⟦2⟧.",
+   "sites": [
+    "ausboss/nodes/_math_helpers.py:89"
+   ]
+  },
+  {
+   "text": "Pad mode must be one of ⟦0⟧, got '⟦1⟧'.",
+   "sites": [
+    "ausboss/nodes/_pad_helpers.py:416"
+   ]
+  },
+  {
+   "text": "Picture ⟦0⟧ is not connected. Connect the new person's picture or remove its looks like line.",
+   "sites": [
+    "ausboss/nodes/_h3_cast_helpers.py:148"
+   ]
+  },
+  {
+   "text": "Picture ⟦0⟧ must be a person or character sheet for a swap's looks like line.",
+   "sites": [
+    "ausboss/nodes/_h3_cast_helpers.py:150"
+   ]
+  },
+  {
+   "text": "Presets: could not read ⟦0⟧: ⟦1⟧",
+   "sites": [
+    "ausboss/nodes/_transform_inputs.py:37"
+   ]
+  },
+  {
+   "text": "Presets: skipped entries that are not W:H integer pairs: ⟦0⟧",
+   "sites": [
+    "ausboss/nodes/_transform_inputs.py:68"
+   ]
+  },
+  {
+   "text": "Presets: ⟦0⟧ is not valid JSON (⟦1⟧); using built-in aspect ratios.",
+   "sites": [
+    "ausboss/nodes/_transform_inputs.py:45"
+   ]
+  },
+  {
+   "text": "Presets: ⟦0⟧ needs a crop_aspect_ratios list; using built-in aspect ratios.",
+   "sites": [
+    "ausboss/nodes/_transform_inputs.py:52"
+   ]
+  },
+  {
+   "text": "Realign to Source: unknown empty_fill '⟦0⟧'.",
+   "sites": [
+    "ausboss/nodes/_realign_helpers.py:543"
+   ]
+  },
+  {
+   "text": "Realign to Source: unknown fit '⟦0⟧'.",
+   "sites": [
+    "ausboss/nodes/_realign_helpers.py:410"
+   ]
+  },
+  {
+   "text": "Save Image: on_existing must be one of ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/_image_save_helpers.py:252"
+   ]
+  },
+  {
+   "text": "Save Image: unknown format '⟦0⟧'.",
+   "sites": [
+    "ausboss/nodes/_image_save_helpers.py:331"
+   ]
+  },
+  {
+   "text": "Say what Picture ⟦0⟧'s person looks like, or remove its looks like line.",
+   "sites": [
+    "ausboss/nodes/_h3_cast_helpers.py:155"
+   ]
+  },
+  {
+   "text": "Split Batch needs at least 2 frames to split, but this batch contains ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/_batch_helpers.py:74"
+   ]
+  },
+  {
+   "text": "Stitch Inpaint: edge-halo spread failed (⟦0⟧).",
+   "sites": [
+    "ausboss/nodes/_inpaint_crop_helpers.py:350"
+   ]
+  },
+  {
+   "text": "Stitch Inpaint: paste_onto must be 'crop' or 'original', not ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/node_inpaint_crop_stitch.py:485"
+   ]
+  },
+  {
+   "text": "Stitch Inpaint: seam must be 'classic' or 'blend in', not ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/node_inpaint_crop_stitch.py:482"
+   ]
+  },
+  {
+   "text": "The bboxes input needs a list of boxes or prompt elements, not a list of ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/_layout_boxes_helpers.py:338"
+   ]
+  },
+  {
+   "text": "The text on the bboxes input is not valid JSON (⟦0⟧).",
+   "sites": [
+    "ausboss/nodes/_layout_boxes_helpers.py:310"
+   ]
+  },
+  {
+   "text": "This video is no longer in ComfyUI's ⟦0⟧ folder: ⟦1⟧",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:226"
+   ]
+  },
+  {
+   "text": "Transform: input 'image' expected a BHWC batch, received ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:460"
+   ]
+  },
+  {
+   "text": "Transform: input '⟦0⟧' expected 0..⟦1⟧, received ⟦2⟧.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:99"
+   ]
+  },
+  {
+   "text": "Transform: source dimensions must be at most ⟦0⟧ pixels per side.",
+   "sites": [
+    "ausboss/nodes/_transform_engine.py:134"
+   ]
+  },
+  {
+   "text": "Unsupported video extension: ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/_media_helpers.py:198"
+   ]
+  },
+  {
+   "text": "[AusBoss] Free Memory: ⟦0⟧.",
+   "sites": [
+    "ausboss/nodes/node_free_memory.py:47"
+   ]
+  },
+  {
+   "text": "[AusBoss] LaMa frame previews unavailable: ⟦0⟧",
+   "sites": [
+    "ausboss/nodes/_lama_helpers.py:224"
+   ]
+  },
+  {
+   "text": "[AusBoss] Layout Boxes: background not shown on the node (⟦0⟧).",
+   "sites": [
+    "ausboss/nodes/node_layout_boxes.py:104"
+   ]
+  },
+  {
+   "text": "[AusBoss] Load Image + Pad: stage preview unavailable (⟦0⟧).",
+   "sites": [
+    "ausboss/nodes/node_load_image_pad.py:90"
+   ]
+  },
+  {
+   "text": "[AusBoss] Stitch Inpaint: ⟦0⟧",
+   "sites": [
+    "ausboss/nodes/node_inpaint_crop_stitch.py:493"
+   ]
+  },
+  {
+   "text": "[AusBoss] ⟦0⟧",
+   "sites": [
+    "ausboss/nodes/_execution_helpers.py:99"
+   ]
+  },
+  {
+   "text": "[AusBoss] ⟦0⟧: preview unavailable (⟦1⟧).",
+   "sites": [
+    "ausboss/nodes/_preview_helpers.py:111"
+   ]
+  },
+  {
+   "text": "interpolation must be one of ⟦0⟧, got '⟦1⟧'.",
+   "sites": [
+    "ausboss/nodes/_resize_helpers.py:229"
+   ]
+  },
+  {
+   "text": "keep_proportion must be one of ⟦0⟧, got '⟦1⟧'.",
+   "sites": [
+    "ausboss/nodes/_resize_helpers.py:144"
+   ]
+  },
+  {
+   "text": "target_mode must be one of ⟦0⟧, got '⟦1⟧'.",
+   "sites": [
+    "ausboss/nodes/_resize_helpers.py:76"
+   ]
+  },
+  {
+   "text": "⟦0⟧ ends before the second it should start from. Pick an earlier start.",
+   "sites": [
+    "ausboss/nodes/node_h3_prompt_writer.py:101"
+   ]
+  },
+  {
+   "text": "⟦0⟧ may not contain '..'.",
+   "sites": [
+    "ausboss/nodes/_image_save_helpers.py:89"
+   ]
+  },
+  {
+   "text": "⟦0⟧ must be a relative name, not a rooted path.",
+   "sites": [
+    "ausboss/nodes/_image_save_helpers.py:86"
+   ]
+  },
+  {
+   "text": "⟦0⟧ must be an HxWx3 picture.",
+   "sites": [
+    "ausboss/nodes/_psd_helpers.py:47"
+   ]
+  },
+  {
+   "text": "⟦0⟧ must be ⟦1⟧x⟦2⟧, got ⟦3⟧x⟦4⟧.",
+   "sites": [
+    "ausboss/nodes/_psd_helpers.py:40"
+   ]
+  },
+  {
+   "text": "⟦0⟧ must be ⟦1⟧x⟦2⟧, the size of the flat picture.",
+   "sites": [
+    "ausboss/nodes/_psd_helpers.py:104"
+   ]
+  },
+  {
+   "text": "⟦0⟧ needs start_seconds smaller than end_seconds.",
+   "sites": [
+    "ausboss/nodes/_video_load_helpers.py:104"
+   ]
+  },
+  {
+   "text": "⟦0⟧ requires ComfyUI's folder_paths at runtime.",
+   "sites": [
+    "ausboss/nodes/_preview_helpers.py:76"
+   ]
+  },
+  {
+   "text": "⟦0⟧: could not parse '⟦1⟧'; using mid-gray 128,128,128.",
+   "sites": [
+    "ausboss/nodes/_color_helpers.py:83"
+   ]
+  }
+ ]
+}

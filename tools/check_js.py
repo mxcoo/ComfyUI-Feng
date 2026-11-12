@@ -138,6 +138,7 @@ def main() -> int:
     static_root = find_static_root()
     problems: list[str] = []
     checked = 0
+    skipped = 0
 
     for root, _dirs, files in os.walk(WEB_DIR):
         for filename in sorted(files):
@@ -145,6 +146,11 @@ def main() -> int:
                 continue
             path = os.path.join(root, filename)
             rel = os.path.relpath(path, WEB_DIR).replace(os.sep, "/")
+            if rel.startswith("ausboss/"):
+                # 移植包由 check_ausboss.py 负责：那边按浏览器 URL 深度解析 import，
+                # 且能跳过正则字面量，这里的简易扫描会在 /[\/:*?"<>|]/ 上误报
+                skipped += 1
+                continue
             url_path = PLUGIN_PREFIX + rel
             with open(path, encoding="utf-8") as handle:
                 text = handle.read()
@@ -159,7 +165,8 @@ def main() -> int:
         for item in problems:
             print("  -", item)
         return 1
-    print(f"JS 静态检查通过（{checked} 个文件）")
+    note = f"，另有 {skipped} 个 AusBoss 文件由 check_ausboss.py 检查" if skipped else ""
+    print(f"JS 静态检查通过（{checked} 个文件{note}）")
     return 0
 
 
