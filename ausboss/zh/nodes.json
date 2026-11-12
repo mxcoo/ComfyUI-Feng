@@ -1,6 +1,6 @@
 {
  "_note": "由 tools/_ausboss_zh_build.py 生成，改文案请改 tools/_zh_out 与 tools/_ausboss_*.json 后重跑。",
- "pack_version": "2.23.0",
+ "pack_version": "2.24.0",
  "categories": {
   "🆎 AusBoss/Compatibility": "🆎 AusBoss/兼容",
   "🆎 AusBoss/Image": "🆎 AusBoss/图像",

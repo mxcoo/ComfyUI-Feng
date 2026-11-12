@@ -8,7 +8,7 @@
 **改了前端 js 就要同时改这里和 web/ausboss/shared/index.mjs 的 AUSBOSS_JS_VERSION**。
 """
 
-PACK_VERSION = "2.23.0"
+PACK_VERSION = "2.24.0"
 
 # 上游提交号，方便日后对照上游 diff（不参与运行）。
-UPSTREAM_COMMIT = "6008d31"
+UPSTREAM_COMMIT = "431941f"
