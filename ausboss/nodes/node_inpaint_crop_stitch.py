@@ -479,10 +479,10 @@ class AusBossStitchInpaint:
         if seam in _UNSET_SEAM:
             seam = SEAM_CLASSIC
         if seam not in SEAM_MODES:
-            raise ValueError(f"Stitch Inpaint 的 seam 只能取 'classic' 或 'blend in'，而不是 {{seam!r}}。")
+            raise ValueError(f"Stitch Inpaint 的 seam 只能取 'classic' 或 'blend in'，而不是 {seam!r}。")
         image = apply_stitch(stitcher, inpainted, bool(fix_edge_halo), float(color_match), seam)
         if paste_onto not in _UNSET_PASTE_ONTO and paste_onto not in PASTE_ONTO_MODES:
-            raise ValueError(f"Stitch Inpaint 的 paste_onto 只能取 'crop' 或 'original'，而不是 {{paste_onto!r}}。")
+            raise ValueError(f"Stitch Inpaint 的 paste_onto 只能取 'crop' 或 'original'，而不是 {paste_onto!r}。")
         result = (image, stitch_blend_mask(stitcher, image.shape[0], seam))
         if paste_onto == PASTE_ONTO_ORIGINAL:
             result = paste_on_original(stitcher, *result)
@@ -490,7 +490,7 @@ class AusBossStitchInpaint:
         # it must not interrupt a successful render with a warning popup.
         notice = unpainted_notice(unpainted_share(stitcher, inpainted))
         if notice is not None:
-            print(f"[AusBoss] Stitch Inpaint：{{notice}}")
+            print(f"[AusBoss] Stitch Inpaint：{notice}")
         return result
 
     @classmethod

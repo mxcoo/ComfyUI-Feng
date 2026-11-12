@@ -73,7 +73,7 @@ def resolve_target(
         raise ValueError("Image Resize 的源尺寸必须大于 0x0。")
     if target_mode not in TARGET_MODES:
         raise ValueError(
-            f"target_mode 只能取 {{TARGET_MODES}} 中的一个，收到的是 '{{target_mode}}'。"
+            f"target_mode 只能取 {TARGET_MODES} 中的一个，收到的是 '{target_mode}'。"
         )
 
     def scaled(scale: float) -> tuple[int, int]:
@@ -141,7 +141,7 @@ def plan_resize(
         raise ValueError("Image Resize 的源尺寸和目标尺寸都必须大于 0。")
     if keep_proportion not in PROPORTION_MODES:
         raise ValueError(
-            f"keep_proportion 只能取 {{PROPORTION_MODES}} 中的一个，收到的是 '{{keep_proportion}}'。"
+            f"keep_proportion 只能取 {PROPORTION_MODES} 中的一个，收到的是 '{keep_proportion}'。"
         )
 
     plan = {"crop_x": 0, "crop_y": 0, "offset_x": 0, "offset_y": 0}
@@ -226,7 +226,7 @@ def resample_batch(
         raise ValueError("Image Resize 需要 BHWC 格式的批次才能重采样。")
     if interpolation not in INTERPOLATION_MODES:
         raise ValueError(
-            f"interpolation 只能取 {{INTERPOLATION_MODES}} 中的一个，收到的是 '{{interpolation}}'。"
+            f"interpolation 只能取 {INTERPOLATION_MODES} 中的一个，收到的是 '{interpolation}'。"
         )
     width, height = int(width), int(height)
     if width <= 0 or height <= 0:

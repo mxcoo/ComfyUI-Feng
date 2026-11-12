@@ -65,7 +65,7 @@ def check_workflow_size(width, height, workflow_sizes):
         raise ValueError("工作流分辨率无效，请在 Latent Size 设置里修改列表。") from exc
     if policy["strict"] and [width, height] not in sizes:
         choices = ", ".join(f"{w}×{h}" for w, h in sizes)
-        raise ValueError(f"Latent Size：{{width}}×{{height}} 不在工作流允许的尺寸里：{{choices}}。")
+        raise ValueError(f"Latent Size：{width}×{height} 不在工作流允许的尺寸里：{choices}。")
 
 
 def latent_downscale(family: str) -> int:

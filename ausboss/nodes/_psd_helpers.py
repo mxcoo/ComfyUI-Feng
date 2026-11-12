@@ -37,14 +37,14 @@ _BLEND_RANGE = b"\x00\x00\xff\xff\x00\x00\xff\xff"
 def _plane(array, height: int, width: int, source: str) -> np.ndarray:
     plane = np.ascontiguousarray(array, dtype=np.uint8)
     if plane.shape != (height, width):
-        raise ValueError(f"{{source}} 必须是 {{width}}x{{height}}，实际是 {{plane.shape[1]}}x{{plane.shape[0]}}。")
+        raise ValueError(f"{source} 必须是 {width}x{height}，实际是 {plane.shape[1]}x{plane.shape[0]}。")
     return plane
 
 
 def _rgb(array, source: str) -> np.ndarray:
     rgb = np.ascontiguousarray(array, dtype=np.uint8)
     if rgb.ndim != 3 or rgb.shape[2] != 3:
-        raise ValueError(f"{{source}} 必须是 HxWx3 的图片。")
+        raise ValueError(f"{source} 必须是 HxWx3 的图片。")
     return rgb
 
 
@@ -89,10 +89,10 @@ def write_psd(path, layers, composite, alpha=None) -> Path:
     flat = _rgb(composite, "The flat picture")
     height, width = flat.shape[:2]
     if not (0 < height <= PSD_MAX_SIDE and 0 < width <= PSD_MAX_SIDE):
-        raise ValueError(f"PSD 里的图片每边不能超过 {{PSD_MAX_SIDE}} px。")
+        raise ValueError(f"PSD 里的图片每边不能超过 {PSD_MAX_SIDE} px。")
     layers = list(layers)
     if not 0 < len(layers) <= PSD_MAX_LAYERS:
-        raise ValueError(f"这里的 PSD 只能有 1 到 {{PSD_MAX_LAYERS}} 个图层。")
+        raise ValueError(f"这里的 PSD 只能有 1 到 {PSD_MAX_LAYERS} 个图层。")
 
     records = []
     planes = []
@@ -101,7 +101,7 @@ def write_psd(path, layers, composite, alpha=None) -> Path:
         source = f"Layer {index + 1}"
         rgb = _rgb(layer.get("rgb"), source)
         if rgb.shape[:2] != (height, width):
-            raise ValueError(f"{{source}} 必须是 {{width}}x{{height}}，与平铺图的尺寸一致。")
+            raise ValueError(f"{source} 必须是 {width}x{height}，与平铺图的尺寸一致。")
         mask = layer.get("mask")
         solid = layer.get("alpha")
         records.append(_record(layer.get("name", ""), height, width, mask is not None))

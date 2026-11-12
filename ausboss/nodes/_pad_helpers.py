@@ -413,7 +413,7 @@ def pad_image(
     right = max(0, int(pad_right))
     bottom = max(0, int(pad_bottom))
     if mode not in PAD_MODES:
-        raise ValueError(f"Pad 的 mode 只能取 {{PAD_MODES}}，实际是 '{{mode}}'。")
+        raise ValueError(f"Pad 的 mode 只能取 {PAD_MODES}，实际是 '{mode}'。")
 
     batch, height, width, _ = image.shape
     canvas_h = height + top + bottom

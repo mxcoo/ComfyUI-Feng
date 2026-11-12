@@ -42,7 +42,7 @@ UI_KEY = "ausboss_image_folder"
 def _root(source: str) -> Path:
     """ComfyUI's input or output folder. Nothing else is ever a root."""
     if source not in SOURCES:
-        raise ValueError(f"Image Folder 的 From 只能取 {{SOURCES}}，不能是 '{{source}}'。")
+        raise ValueError(f"Image Folder 的 From 只能取 {SOURCES}，不能是 '{source}'。")
     if folder_paths is None:
         raise RuntimeError("Image Folder 需要 ComfyUI 的目录配置。")
     getter = folder_paths.get_output_directory if source == "output" else folder_paths.get_input_directory

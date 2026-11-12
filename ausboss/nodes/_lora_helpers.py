@@ -44,13 +44,13 @@ def parse_lora_stack(raw: str | None) -> list[dict[str, Any]]:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"LoRA 堆栈不是合法的 JSON：{{exc}}") from exc
+        raise ValueError(f"LoRA 堆栈不是合法的 JSON：{exc}") from exc
     if not isinstance(data, list):
         raise ValueError("LoRA 堆栈必须是 JSON 行列表。")
     rows: list[dict[str, Any]] = []
     for index, entry in enumerate(data, start=1):
         if not isinstance(entry, dict):
-            raise ValueError(f"LoRA 堆栈第 {{index}} 行必须是对象。")
+            raise ValueError(f"LoRA 堆栈第 {index} 行必须是对象。")
         name = str(entry.get("name") or "").strip()
         if not name:
             # Blank rows are a UI convenience (freshly added, not yet picked);
@@ -150,17 +150,17 @@ def resolve_lora_path(name: str) -> Path:
             full = folder_paths.get_full_path("loras", candidate)
         elif status == "ambiguous":
             raise ValueError(
-                f"LoRA 名称在 models/loras 里匹配到多个文件：{{name}}"
+                f"LoRA 名称在 models/loras 里匹配到多个文件：{name}"
             )
     if not full:
-        raise ValueError(f"models/loras 里找不到 LoRA 文件：{{name}}")
+        raise ValueError(f"models/loras 里找不到 LoRA 文件：{name}")
     # Containment is checked on the path as written, with ".." folded but
     # links not followed: a LoRA kept on another drive and linked into
     # models/loras is the user's own choice, and ComfyUI loads it too.
     path = Path(os.path.abspath(full))
     roots = [Path(os.path.abspath(root)) for root in folder_paths.get_folder_paths("loras")]
     if not any(root in path.parents for root in roots):
-        raise ValueError(f"LoRA 路径超出了 loras 目录：{{name}}")
+        raise ValueError(f"LoRA 路径超出了 loras 目录：{name}")
     return path
 
 

@@ -8,10 +8,10 @@ import torch
 def _require_batch(frames: torch.Tensor, source: str) -> int:
     """Validate a non-empty BHWC batch and return its frame count."""
     if not isinstance(frames, torch.Tensor) or frames.ndim != 4:
-        raise ValueError(f"{{source}} 需要 BHWC 格式的 IMAGE 批次。")
+        raise ValueError(f"{source} 需要 BHWC 格式的 IMAGE 批次。")
     count = int(frames.shape[0])
     if count < 1:
-        raise ValueError(f"{{source}} 收到的 IMAGE 批次是空的。")
+        raise ValueError(f"{source} 收到的 IMAGE 批次是空的。")
     return count
 
 
@@ -71,7 +71,7 @@ def split_batch(frames: torch.Tensor, index: int) -> tuple[torch.Tensor, torch.T
     number = int(index)
     if count < 2:
         raise ValueError(
-            f"Split Batch 至少要 2 帧才能拆，但这个批次只有 {{count}} 帧。"
+            f"Split Batch 至少要 2 帧才能拆，但这个批次只有 {count} 帧。"
         )
     if number < 1 or number >= count:
         raise ValueError(

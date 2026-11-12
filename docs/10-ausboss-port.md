@@ -4,7 +4,7 @@
 搬来的 54 个节点，并做了完整汉化：节点名、分类、描述、输入提示（tooltip）、输出名、
 下拉框的**显示文字**、前端面板里的按钮与提示、以及每篇节点帮助文档，全部是中文。
 
-上游版本固定在 `2.23.0`（commit `6008d31`），记录在 `ausboss/_version.py`。
+上游版本固定在 `2.24.0`（commit `431941f`），记录在 `ausboss/_version.py`。
 
 ## 1. 目录
 
@@ -124,23 +124,26 @@ python tools\_ausboss_py_zh.py apply-f
 | 前端 | 括号配平、相对 import 按浏览器 URL 深度解析、`labels.mjs` 的键都在 `nodes.json` 里 |
 | 帮助文档 | 54 篇 md 都存在且含中文 |
 | 版本 | `_version.py`、`shared/index.mjs`、`nodes.json` 三处版本号一致 |
+| f-string 插值 | 源码里除 `_image_save_helpers.py` 那条正则外不得出现 `{{`（防译文把 `{x}` 写成 `{{x}}`） |
 
 `web/ausboss/**` 由这个脚本负责，`tools/check_js.py` 会跳过该目录（它的简易括号扫描
 会被 `/[\\/:*?"<>|]/` 这类正则误报）。
 
+还有一支不常跑的：`tools/check_ausboss_upstream.py <上游检出> [ref]` 拿本地和上游逐文件比
+（忽略字符串内容看结构、单独比 f-string 插值），用来证明「除了文案与三个有意改的文件，逻辑没动」。
+它需要上游的 git 检出，所以没挂进 `check_all.py`。
+
 ## 6. 跟着上游升级
 
-```powershell
-git clone https://github.com/ausboss/ComfyUI-AusBoss /tmp/ausboss
-# 对比 /tmp/ausboss 与本地的差异，按下面的规则搬：
-```
+**完整步骤、判断「是否只是版本号」的快速法、以及不能整目录覆盖的原因，见
+[11-ausboss-maintenance-log.md](11-ausboss-maintenance-log.md) 第 3 节。** 要点只有三条：
 
-1. `ausboss/nodes/`、`web/ausboss/`（除 `zh_labels/`）整目录替换；
-2. 重新跑一遍 import 深度改写（`web/ausboss` 比上游多一层，`../../../scripts/` → `../../../../scripts/`）：
-   `grep -rl '\.\./\.\./\.\./scripts/' web/ausboss | xargs sed -i 's|\.\./\.\./\.\./scripts/|../../../../scripts/|g'`
-3. 更新 `ausboss/_version.py` 的 `PACK_VERSION`/`UPSTREAM_COMMIT` 与
-   `web/ausboss/shared/index.mjs` 的 `AUSBOSS_JS_VERSION`（`check_ausboss.py` 会比对）；
-4. 重新生成汉化数据（第 4 节整条链），新增节点会以英文名出现在校验报告里。
+1. 先 `git diff --stat <旧 UPSTREAM_COMMIT>..FETCH_HEAD`：只改了 `pyproject.toml` /
+   `js/shared/index.mjs` / `CHANGELOG.md` / `assets/` 时，**只改版本号，别搬代码**；
+2. 有真代码变化时**只搬 diff 里列出的文件**——整目录覆盖会冲掉我们改过的
+   `_frontend_cache.py` / `_media_helpers.py` / `_single_copy.py` 以及全部中文文案；
+3. 搬完补 import 深度（`../../../scripts/` → `../../../../scripts/`）、重跑汉化数据链
+   （第 4 节）、改三处版本号，最后 `tools\check_all.py`。
 
 ## 7. 已知边界
 

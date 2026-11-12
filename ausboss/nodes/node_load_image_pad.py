@@ -63,7 +63,7 @@ def _wired_frames(image) -> torch.Tensor:
     elif channels >= 3:
         frames = frames[..., :3]
     else:
-        raise ValueError(f"Load Image + Pad：source_image 有 {{channels}} 个通道。")
+        raise ValueError(f"Load Image + Pad：source_image 有 {channels} 个通道。")
     return frames.contiguous()
 
 
@@ -87,7 +87,7 @@ def _with_stage_preview(frames: torch.Tensor, unique_id, result: tuple):
         (folder / name).write_bytes(encode_preview(pil, 512, 512))
     except Exception as exc:  # noqa: BLE001 - any failure here is non-fatal
         detail = str(exc).encode("ascii", "replace").decode("ascii")
-        print(f"[AusBoss] Load Image + Pad 的阶段预览不可用（{{detail}}）。")
+        print(f"[AusBoss] Load Image + Pad 的阶段预览不可用（{detail}）。")
         return result
     return {
         "ui": {

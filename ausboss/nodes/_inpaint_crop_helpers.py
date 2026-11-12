@@ -201,7 +201,7 @@ def rect_margins(rect: Rect, bounds_w: int, bounds_h: int) -> tuple[int, int, in
 # stitcher producer validate through these two.
 def _as_image(image: torch.Tensor, source: str = "Crop For Inpaint") -> torch.Tensor:
     if not isinstance(image, torch.Tensor) or image.ndim != 4:
-        raise ValueError(f"{{source}} 需要 BHWC 格式的 IMAGE 批次。")
+        raise ValueError(f"{source} 需要 BHWC 格式的 IMAGE 批次。")
     return image.float()
 
 
@@ -211,7 +211,7 @@ def _as_mask(
     if isinstance(mask, torch.Tensor) and mask.ndim == 2:
         mask = mask.unsqueeze(0)
     if not isinstance(mask, torch.Tensor) or mask.ndim != 3:
-        raise ValueError(f"{{source}} 需要 BHW 格式的 MASK。")
+        raise ValueError(f"{source} 需要 BHW 格式的 MASK。")
     if mask.shape[1:] != image.shape[1:3]:
         # Most often core Load Image's 64x64 stand-in for "nothing painted".
         raise ValueError(mask_size_mismatch(mask, int(image.shape[1]), int(image.shape[2])))
@@ -347,7 +347,7 @@ def spread_edge_colors(patch: torch.Tensor, alpha: torch.Tensor) -> torch.Tensor
             foreground = estimate(image, matte)
         except Exception as exc:  # A failed estimate must never fail the paste.
             detail = str(exc).encode("ascii", "replace").decode("ascii")
-            warn_once(f"Stitch Inpaint 的边缘光晕扩散失败（{{detail}}）。", _warned)
+            warn_once(f"Stitch Inpaint 的边缘光晕扩散失败（{detail}）。", _warned)
             return patch
         spread[index] = torch.as_tensor(foreground)  # copy_ handles dtype/device
         if progress is not None:

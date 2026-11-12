@@ -160,3 +160,7 @@ cd H:\~~~aki-v3.2\ComfyUI\custom_nodes\Feng
 8. 上游 `js/` 里的字符串被拆成多行相邻字面量，靠行号 + 字符偏移回填译文时，**偏移必须来自同一次
    提取**：先提取、再翻译、再回填，中途改过源码就要重新提取，否则会写出半截英文（本项目
    `tools/_ausboss_js_zh.mjs` 与 `tools/_ausboss_py_zh.py` 都带了「坐标对不上就跳过」的兜底）。
+9. **f-string 里的 `{name}` 不能写成 `{{name}}`**。翻译时把花括号「保护」起来会让报错信息原样
+   打印 `{ALIGN_MODES}` 而不是变量值（本项目一次性中过 82 处）。`tools/_ausboss_py_zh.py apply-f`
+   重建 f-string 时不做二次转义；`tools/check_ausboss.py` 的 `check_fstrings` 会拦住复发
+   （全包只允许 `ausboss/nodes/_image_save_helpers.py` 里那条 `\d{{{COUNTER_WIDTH},}}` 正则）。

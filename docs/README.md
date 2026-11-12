@@ -31,6 +31,7 @@
 | [08-prompt-preset-node.md](08-prompt-preset-node.md) | 「多功能提示词预设」节点的实现、数据结构、怎么加自己的预设 | 要改这个节点时 |
 | [09-batch-image-loader.md](09-batch-image-loader.md) | 「批量图片加载」节点：拖拽上传、排序、批次输出、取单张 | 要用/改这个节点时 |
 | [10-ausboss-port.md](10-ausboss-port.md) | 并入的 AusBoss 节点包：V1 桥接、汉化层、数据生成链、跟上上游 | 要改这 54 个节点或重跑汉化时 |
+| [11-ausboss-maintenance-log.md](11-ausboss-maintenance-log.md) | AusBoss 的版本对照表、这一轮的完整过程、升级 SOP、回归与排错 | **升级上游 / 排查节点不出现 / 接手维护时先看** |
 
 ## 骨架里有什么
 

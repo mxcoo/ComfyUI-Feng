@@ -195,7 +195,7 @@ def resolve_video_path(source_mode: str, video: str, local_path: str) -> Path:
     else:
         raise ValueError("视频来源模式只能是 'input folder' 或 'local path'。")
     if path.suffix.lower() not in VIDEO_EXTENSIONS:
-        raise ValueError(f"不支持的视频扩展名：{{path.suffix.lower() or '(none)'}}。")
+        raise ValueError(f"不支持的视频扩展名：{path.suffix.lower() or '(none)'}。")
     return path
 
 
@@ -223,7 +223,7 @@ def resolve_server_file(name: str) -> Path:
         raise ValueError("先在节点的 Outputs 列表里选一个视频。")
     folder, inside, path = _locate_comfy_file(text, SERVER_FILE_RULE)
     if not path.is_file():
-        raise ValueError(f"这个视频已经不在 ComfyUI 的 {{folder}} 目录里了：{{inside}}")
+        raise ValueError(f"这个视频已经不在 ComfyUI 的 {folder} 目录里了：{inside}")
     return path
 
 

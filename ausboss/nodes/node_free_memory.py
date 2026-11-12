@@ -44,7 +44,7 @@ class AusBossFreeMemory:
         detail = ", ".join(freed) if freed else "nothing to free"
         # Runtime log, not import-time, so the emoji rule does not apply -
         # but ASCII is kept anyway for cp1252 consoles.
-        print(f"[AusBoss] Free Memory：{{detail}}。")
+        print(f"[AusBoss] Free Memory：{detail}。")
         return (value,)
 
 

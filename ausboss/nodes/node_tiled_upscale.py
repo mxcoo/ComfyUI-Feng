@@ -26,7 +26,7 @@ def _core_nodes() -> dict:
 def _rgb(image: torch.Tensor, who: str) -> torch.Tensor:
     """A BHWC float batch with exactly three channels."""
     if not isinstance(image, torch.Tensor) or image.ndim != 4:
-        raise ValueError(f"{{who}} 需要 BHWC 格式的 IMAGE 批次。")
+        raise ValueError(f"{who} 需要 BHWC 格式的 IMAGE 批次。")
     image = image.float()
     if image.shape[-1] == 1:
         return image.expand(-1, -1, -1, 3)

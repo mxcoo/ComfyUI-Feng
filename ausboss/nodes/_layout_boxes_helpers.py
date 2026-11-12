@@ -303,7 +303,7 @@ def boxes_from_input(data: Any, width: int, height: int) -> list[dict]:
         try:
             data = json.loads(text)
         except ValueError as exc:
-            raise LayoutError(f"bboxes 输入里的文本不是有效的 JSON（{{exc}}）。") from exc
+            raise LayoutError(f"bboxes 输入里的文本不是有效的 JSON（{exc}）。") from exc
     if isinstance(data, dict):
         if _is_element(data):
             return _element_boxes([data], width, height)
@@ -331,7 +331,7 @@ def boxes_from_input(data: Any, width: int, height: int) -> list[dict]:
             "`bboxes` 输入需要多个框 (x, y, width, height) 或带 'bbox' 的提示词元素。"
         )
     raise LayoutError(
-        f"bboxes 输入需要的是框或提示词元素的列表，而不是由 {{type(first).__name__}} 组成的列表。"
+        f"bboxes 输入需要的是框或提示词元素的列表，而不是由 {type(first).__name__} 组成的列表。"
     )
 
 

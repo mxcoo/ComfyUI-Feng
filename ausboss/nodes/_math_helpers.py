@@ -77,7 +77,7 @@ def _call(node: ast.Call, values: dict[str, float]) -> float:
             + ", ".join(sorted(_FUNCTIONS)) + "."
         )
     if node.keywords:
-        raise ValueError(f"Math Expression 不允许给 {{name}}() 传关键字参数。")
+        raise ValueError(f"Math Expression 不允许给 {name}() 传关键字参数。")
     apply, minimum, maximum = spec
     # A starred argument shows up as ast.Starred inside args and falls into
     # the catch-all refusal in _evaluate, so this list is always plain values.
@@ -86,7 +86,7 @@ def _call(node: ast.Call, values: dict[str, float]) -> float:
         expected = f"{minimum}" if maximum == minimum else (
             f"at least {minimum}" if maximum is None else f"{minimum} to {maximum}"
         )
-        raise ValueError(f"Math Expression：{{name}}() 需要 {{expected}} 个参数，实际给了 {{len(args)}} 个。")
+        raise ValueError(f"Math Expression：{name}() 需要 {expected} 个参数，实际给了 {len(args)} 个。")
     try:
         return float(apply(args))
     except ValueError:
@@ -100,27 +100,27 @@ def _evaluate(node: ast.AST, values: dict[str, float]) -> float:
     if isinstance(node, ast.Constant):
         if isinstance(node.value, bool) or not isinstance(node.value, (int, float)):
             raise ValueError(
-                f"Math Expression 只允许数字，不允许 {{type(node.value).__name__}} 字面量。"
+                f"Math Expression 只允许数字，不允许 {type(node.value).__name__} 字面量。"
             )
         return float(node.value)
     if isinstance(node, ast.Name):
         if node.id not in values:
             raise ValueError(
-                f"Math Expression 只认 a、b、c 这三个名字，不认 {{node.id!r}}。"
+                f"Math Expression 只认 a、b、c 这三个名字，不认 {node.id!r}。"
             )
         return values[node.id]
     if isinstance(node, ast.BinOp):
         op = _BINARY_OPS.get(type(node.op))
         if op is None:
             raise ValueError(
-                f"Math Expression 不允许使用 {{type(node.op).__name__}} 运算符。"
+                f"Math Expression 不允许使用 {type(node.op).__name__} 运算符。"
             )
         return op(_evaluate(node.left, values), _evaluate(node.right, values))
     if isinstance(node, ast.UnaryOp):
         op = _UNARY_OPS.get(type(node.op))
         if op is None:
             raise ValueError(
-                f"Math Expression 不允许使用 {{type(node.op).__name__}} 运算符。"
+                f"Math Expression 不允许使用 {type(node.op).__name__} 运算符。"
             )
         return op(_evaluate(node.operand, values))
     if isinstance(node, ast.Call):
@@ -130,7 +130,7 @@ def _evaluate(node: ast.AST, values: dict[str, float]) -> float:
         raise ValueError("Math Expression 不允许属性访问。")
     if isinstance(node, ast.Subscript):
         raise ValueError("Math Expression 不允许下标访问。")
-    raise ValueError(f"Math Expression 不允许 {{type(node).__name__}} 语法。")
+    raise ValueError(f"Math Expression 不允许 {type(node).__name__} 语法。")
 
 
 def evaluate_expression(expression: str, variables: dict[str, float] | None = None) -> float:
@@ -155,7 +155,7 @@ def evaluate_expression(expression: str, variables: dict[str, float] | None = No
     try:
         tree = ast.parse(text, mode="eval")
     except SyntaxError as exc:
-        raise ValueError(f"Math Expression 解析失败：{{exc.msg}}。") from None
+        raise ValueError(f"Math Expression 解析失败：{exc.msg}。") from None
     except RecursionError:
         raise ValueError("Math Expression 的嵌套层级太深。") from None
     try:

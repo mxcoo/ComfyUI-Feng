@@ -86,7 +86,7 @@ class CompareSaveError(ValueError):
 
 def _number(value, low: float, high: float, source: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-        raise CompareSaveError(f"Image Compare 的 {{source}} 必须是数字。")
+        raise CompareSaveError(f"Image Compare 的 {source} 必须是数字。")
     return min(high, max(low, float(value)))
 
 
@@ -101,7 +101,7 @@ def clean_strokes(raw, width: int, height: int) -> list[dict]:
     if not isinstance(raw, list):
         raise CompareSaveError("Image Compare 的笔画必须是列表。")
     if len(raw) > ERASE_MAX_STROKES:
-        raise CompareSaveError(f"Image Compare：一次混合最多 {{ERASE_MAX_STROKES}} 条笔画。")
+        raise CompareSaveError(f"Image Compare：一次混合最多 {ERASE_MAX_STROKES} 条笔画。")
     strokes = []
     total = 0
     for item in raw:
@@ -111,10 +111,10 @@ def clean_strokes(raw, width: int, height: int) -> list[dict]:
         if not isinstance(path, list) or len(path) < 2 or len(path) % 2:
             raise CompareSaveError("Image Compare 的每条笔画需要由 x、y 坐标对组成的路径。")
         if len(path) // 2 > ERASE_MAX_STROKE_POINTS:
-            raise CompareSaveError(f"Image Compare：一条笔画最多 {{ERASE_MAX_STROKE_POINTS}} 个点。")
+            raise CompareSaveError(f"Image Compare：一条笔画最多 {ERASE_MAX_STROKE_POINTS} 个点。")
         total += len(path) // 2
         if total > ERASE_MAX_POINTS:
-            raise CompareSaveError(f"Image Compare：一次混合最多 {{ERASE_MAX_POINTS}} 个点。")
+            raise CompareSaveError(f"Image Compare：一次混合最多 {ERASE_MAX_POINTS} 个点。")
         points = [
             (
                 _number(path[index], -ERASE_OUTSIDE, width + ERASE_OUTSIDE, "a stroke's x"),
@@ -353,7 +353,7 @@ def save_mix(*, picture_a, picture_b, output_dir, top="A", strokes=None, layers=
     except OSError as error:
         raise CompareSaveError(PICTURES_GONE, status=404) from error
     if max(height, width) > PSD_MAX_SIDE:
-        raise CompareSaveError(f"Image Compare：只能混合每边不超过 {{PSD_MAX_SIDE}} px 的图片。")
+        raise CompareSaveError(f"Image Compare：只能混合每边不超过 {PSD_MAX_SIDE} px 的图片。")
 
     gone = erase_mask(clean_strokes(strokes, width, height), width, height)
     upper, under = (first, second) if top == "A" else (second, first)

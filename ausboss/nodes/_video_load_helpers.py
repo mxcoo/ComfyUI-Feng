@@ -101,7 +101,7 @@ def trim_window(
     start = max(0.0, float(start_seconds))
     end = float(end_seconds) if float(end_seconds) > 0.0 else float("inf")
     if start >= end:
-        raise ValueError(f"{{source}} 的 start_seconds 必须小于 end_seconds。")
+        raise ValueError(f"{source} 的 start_seconds 必须小于 end_seconds。")
     if duration > 0 and start >= duration - _TIME_EPSILON:
         raise ValueError(
             f"{source} starts at {start:.2f}s but the video is only "
@@ -158,7 +158,7 @@ def fixed_clip_window(metadata, start_seconds, frames, force_rate=0, every_nth=1
         raise ValueError("force_rate 必须是有限值，且在 0 到 1000 fps 之间。")
     length = int(frames) * max(1, int(every_nth)) / (rate or fps)
     if length > duration + 1e-7:
-        raise ValueError(f"Fixed frames 需要 {{length:.3f}} 秒，但源文件只有 {{duration:.3f}} 秒，请减少 Fixed frames。")
+        raise ValueError(f"Fixed frames 需要 {length:.3f} 秒，但源文件只有 {duration:.3f} 秒，请减少 Fixed frames。")
     # A source-frame start keeps the preview, decode and audio in agreement.
     latest = max(0, math.floor((duration - length) * fps + 1e-7))
     first = min(latest, max(0, math.ceil((float(start_seconds) - _TIME_EPSILON) * fps)))

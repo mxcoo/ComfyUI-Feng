@@ -407,7 +407,7 @@ def measure(source: torch.Tensor, edit: torch.Tensor, mode: str = "zoom + shift"
     y1, source px) keeps the comparison inside the picture's area of a
     padded canvas; the fit still maps canvas px to edit px."""
     if mode not in FIT_MODES:
-        raise ValueError(f"Realign to Source：不认识 fit '{{mode}}'。")
+        raise ValueError(f"Realign to Source：不认识 fit '{mode}'。")
     height, width = int(source.shape[0]), int(source.shape[1])
     identity = torch.eye(3, dtype=torch.float64)
     if region is not None:
@@ -540,7 +540,7 @@ def warp_to_source(edit: torch.Tensor, matrix: torch.Tensor, width: int, height:
     output's px onto that canvas (see frame_matrix), and `source` is the
     output-sized picture for the 'source' fill."""
     if fill not in EMPTY_FILLS:
-        raise ValueError(f"Realign to Source：不认识 empty_fill '{{fill}}'。")
+        raise ValueError(f"Realign to Source：不认识 empty_fill '{fill}'。")
     if fill == "source" and source is None:
         raise ValueError("Realign to Source：empty_fill 为 'source' 时需要源图像。")
     canvas_w, canvas_h = canvas if canvas is not None else (width, height)

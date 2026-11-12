@@ -220,7 +220,7 @@ def inpaint_with_model(
                 except Exception as exc:  # Preview loss must never fail the inpaint.
                     preview_failed = True
                     detail = str(exc).encode("ascii", "replace").decode("ascii")
-                    print(f"[AusBoss] LaMa 的逐帧预览不可用：{{detail}}")
+                    print(f"[AusBoss] LaMa 的逐帧预览不可用：{detail}")
             progress.update_absolute(index + 1, image_count, preview)
         # Same cadence as the progress bar, but on the node's own badge, so a
         # long video inpaint says which frame it is on without the sidebar.

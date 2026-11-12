@@ -111,7 +111,7 @@ def decode_audio_window(path: Path, start_seconds, end_seconds, max_seconds=0.0)
     with av.open(str(path)) as container:
         stream = next((candidate for candidate in container.streams if candidate.type == "audio"), None)
         if stream is None:
-            raise ValueError(f"{{path.name}} 里没有声音。")
+            raise ValueError(f"{path.name} 里没有声音。")
         rate = int(stream.rate or FALLBACK_SAMPLE_RATE)
         first = round(start * rate)
         last = None if window["end"] is None else round(window["end"] * rate)
@@ -141,7 +141,7 @@ def decode_audio_window(path: Path, start_seconds, end_seconds, max_seconds=0.0)
             take(None)  # the resampler hands back what it still holds
     if not chunks:
         if position == 0:
-            raise ValueError(f"{{path.name}} 里没有声音。")
+            raise ValueError(f"{path.name} 里没有声音。")
         raise ValueError(
             f"The start ({start:.2f} s) is past the end of {path.name}, "
             f"which is {position / rate:.2f} s long. Drag the start back into the sound."

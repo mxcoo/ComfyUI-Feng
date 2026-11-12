@@ -145,14 +145,14 @@ def swap_appearances(text, jobs, video):
             continue
         slot = int(match.group(1))
         if slot not in (jobs or {}):
-            raise ValueError(f"Picture {{slot}} 没有接入，请接上新人物的图片，或删掉它的 looks like 行。")
+            raise ValueError(f"Picture {slot} 没有接入，请接上新人物的图片，或删掉它的 looks like 行。")
         if jobs[slot] not in (PERSON, SHEET):
-            raise ValueError(f"换人的 looks like 行要求 Picture {{slot}} 是人物图或角色设定图。")
+            raise ValueError(f"换人的 looks like 行要求 Picture {slot} 是人物图或角色设定图。")
         if slot in descriptions:
-            raise ValueError(f"Picture {{slot}} 只描述一次，写成一条 looks like 行。")
+            raise ValueError(f"Picture {slot} 只描述一次，写成一条 looks like 行。")
         description = match.group(2).strip().rstrip(" .")
         if not description:
-            raise ValueError(f"说清 Picture {{slot}} 里的人长什么样，或者删掉它的 looks like 行。")
+            raise ValueError(f"说清 Picture {slot} 里的人长什么样，或者删掉它的 looks like 行。")
         descriptions[slot] = description
     return ("\n".join(kept), descriptions) if descriptions else (text, {})
 

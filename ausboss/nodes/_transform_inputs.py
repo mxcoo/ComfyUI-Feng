@@ -34,7 +34,7 @@ def load_custom_aspect_ratios(path: Path | None = None) -> list[str]:
         return []
     except OSError as exc:
         warn_once(
-            f"Presets：读取 {{path.name}} 失败：{{exc}}",
+            f"Presets：读取 {path.name} 失败：{exc}",
             _warned_presets, limit=_PRESET_WARNING_LIMIT,
         )
         return []
@@ -42,14 +42,14 @@ def load_custom_aspect_ratios(path: Path | None = None) -> list[str]:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         warn_once(
-            f"Presets：{{path.name}} 不是有效的 JSON（{{exc}}），改用内置宽高比。",
+            f"Presets：{path.name} 不是有效的 JSON（{exc}），改用内置宽高比。",
             _warned_presets, limit=_PRESET_WARNING_LIMIT,
         )
         return []
     entries = data.get("crop_aspect_ratios") if isinstance(data, dict) else None
     if not isinstance(entries, list):
         warn_once(
-            f"Presets：{{path.name}} 里需要一个 crop_aspect_ratios 列表，改用内置宽高比。",
+            f"Presets：{path.name} 里需要一个 crop_aspect_ratios 列表，改用内置宽高比。",
             _warned_presets, limit=_PRESET_WARNING_LIMIT,
         )
         return []
@@ -65,7 +65,7 @@ def load_custom_aspect_ratios(path: Path | None = None) -> list[str]:
     if skipped:
         safe = ", ".join(item.encode("ascii", "backslashreplace").decode("ascii") for item in skipped)
         warn_once(
-            f"Presets：已跳过不是 W:H 整数对的条目：{{safe}}",
+            f"Presets：已跳过不是 W:H 整数对的条目：{safe}",
             _warned_presets, limit=_PRESET_WARNING_LIMIT,
         )
     return valid

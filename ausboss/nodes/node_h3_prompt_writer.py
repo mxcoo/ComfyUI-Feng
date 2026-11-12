@@ -98,7 +98,7 @@ def cut_audio(audio, start, seconds, name):
     waveform = audio["waveform"]
     first = int(round(start * rate))
     if first >= waveform.shape[-1]:
-        raise ValueError(f"{{name}} 在应当开始的那一秒之前就结束了，请选一个更早的起点。")
+        raise ValueError(f"{name} 在应当开始的那一秒之前就结束了，请选一个更早的起点。")
     return {"waveform": waveform[..., first : first + int(round(seconds * rate))], "sample_rate": rate}
 
 

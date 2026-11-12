@@ -441,6 +441,25 @@ def check_version(report: Report, data: dict) -> None:
     report.note(f"版本 {pack_version or '未知'}")
 
 
+def check_fstrings(report: Report) -> None:
+    """f-string 的插值不能被翻译成字面量。
+
+    译文回填曾经把 `{name}` 写成 `{{name}}`，报错里于是原样打印「{name}」而不是变量值。
+    全包只允许 _image_save_helpers.py 里那条正则含双花括号（`\d{{{COUNTER_WIDTH},}}`）。
+    """
+    offenders = []
+    for path in sorted((PACK_DIR / "nodes").glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "{{" not in text:
+            continue
+        for number, line in enumerate(text.splitlines(), 1):
+            if "{{" in line and "_image_save_helpers.py" != path.name:
+                offenders.append(f"{path.relative_to(PACK_DIR)}:{number}")
+    if offenders:
+        report.fail("f-string 里的插值被写成了字面量: " + ", ".join(offenders[:5]))
+    report.note(f"f-string 插值 {sum(1 for _ in (PACK_DIR / 'nodes').glob('*.py'))} 个文件无双重花括号")
+
+
 # ---------------------------------------------------------------- 入口
 
 
@@ -467,6 +486,7 @@ def main() -> int:
         check_frontend(report, data)
         check_docs(report, data)
         check_version(report, data)
+        check_fstrings(report)
         sys.path.insert(0, str(TOOLS_DIR))
         try:
             check_runtime(report)

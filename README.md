@@ -13,7 +13,8 @@ ComfyUI 自定义节点插件。
 
 > 另有 **54 个 AusBoss 节点**（分类 `🆎 AusBoss/…`）随本插件一起安装：图像裁剪/缩放/对齐、
 > 遮罩与局部重绘（LaMa、Refine Mask、Mask by Touch）、视频裁剪与插帧、分块放大、LoRA 加载、
-> 工作流开关与说明卡等，全部中文界面。实现与汉化方式见 [docs/10-ausboss-port.md](docs/10-ausboss-port.md)。
+> 工作流开关与说明卡等，全部中文界面。实现与汉化方式见 [docs/10-ausboss-port.md](docs/10-ausboss-port.md)，
+> 版本对照与升级方法见 [docs/11-ausboss-maintenance-log.md](docs/11-ausboss-maintenance-log.md)。
 
 ### 多功能提示词预设 怎么用
 

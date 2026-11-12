@@ -83,10 +83,10 @@ def sanitize_exact_name(name: str, source: str = "Save Image: exact_name") -> st
     if not text:
         return ""
     if ":" in text or PureWindowsPath(text).drive or text.startswith("/"):
-        raise ValueError(f"{{source}} 必须是相对名称，而不是带根目录的路径。")
+        raise ValueError(f"{source} 必须是相对名称，而不是带根目录的路径。")
     parts = [part for part in text.split("/") if part not in ("", ".")]
     if any(part == ".." for part in parts):
-        raise ValueError(f"{{source}} 里不允许出现 '..'。")
+        raise ValueError(f"{source} 里不允许出现 '..'。")
     if not parts:
         return ""
     return "/".join(parts)
@@ -249,7 +249,7 @@ def plan_local_names(
 def existing_action(exists: bool, policy: str) -> str:
     """'write' or 'skip'; the error policy raises so the run stops loudly."""
     if policy not in EXISTING_POLICIES:
-        raise ValueError(f"Save Image 的 on_existing 只能取 {{EXISTING_POLICIES}} 中的一个。")
+        raise ValueError(f"Save Image 的 on_existing 只能取 {EXISTING_POLICIES} 中的一个。")
     if not exists:
         return "write"
     if policy == "overwrite":
@@ -327,7 +327,7 @@ def encode_image(path: Path, frame: torch.Tensor, format_name: str, metadata: di
             kwargs.pop("exif", None)
             image.save(path, **kwargs)
         return
-    raise ValueError(f"Save Image 不认识格式 '{{format_name}}'。")
+    raise ValueError(f"Save Image 不认识格式 '{format_name}'。")
 
 
 __all__ = [

@@ -44,9 +44,9 @@ def first_frame_to_pil(image: torch.Tensor, source: str = "Preview", keep_alpha:
     see-through parts stays RGBA; an opaque one is RGB either way.
     """
     if not isinstance(image, torch.Tensor) or image.ndim != 4:
-        raise ValueError(f"{{source}} 需要 BHWC 格式的 IMAGE 批次。")
+        raise ValueError(f"{source} 需要 BHWC 格式的 IMAGE 批次。")
     if int(image.shape[0]) < 1:
-        raise ValueError(f"{{source}} 收到的 IMAGE 批次是空的。")
+        raise ValueError(f"{source} 收到的 IMAGE 批次是空的。")
     frame = image[0].detach().cpu().float().clamp(0.0, 1.0).mul(255.0).round().to(torch.uint8)
     array = frame.numpy()
     if array.shape[-1] == 1:
@@ -63,7 +63,7 @@ def first_frame_to_pil(image: torch.Tensor, source: str = "Preview", keep_alpha:
 def mask_to_preview_batch(mask: torch.Tensor, source: str = "Preview") -> torch.Tensor:
     """A BHW MASK seen as a one-channel BHWC batch, for first_frame_to_pil."""
     if not isinstance(mask, torch.Tensor) or mask.ndim != 3:
-        raise ValueError(f"{{source}} 需要 BHW 格式的 MASK。")
+        raise ValueError(f"{source} 需要 BHW 格式的 MASK。")
     return mask.unsqueeze(-1)
 
 
@@ -73,7 +73,7 @@ def save_temp_preview(image: torch.Tensor, prefix: str, source: str = "Preview",
     With ``keep_alpha`` a picture with see-through parts is saved with them,
     and its entry says so with ``"alpha": True``."""
     if folder_paths is None:
-        raise RuntimeError(f"{{source}} 运行时需要 ComfyUI 的 folder_paths。")
+        raise RuntimeError(f"{source} 运行时需要 ComfyUI 的 folder_paths。")
     preview = first_frame_to_pil(image, source, keep_alpha)
     full_output_folder, filename, counter, subfolder, _prefix = (
         folder_paths.get_save_image_path(
@@ -108,7 +108,7 @@ def preview_payload(image: torch.Tensor, prefix: str, source: str, result: tuple
         images = [save_temp_preview(image, prefix, source)]
     except Exception as exc:  # noqa: BLE001 - any failure here is non-fatal
         detail = str(exc).encode("ascii", "replace").decode("ascii")
-        print(f"[AusBoss] {{source}}：预览不可用（{{detail}}）。")
+        print(f"[AusBoss] {source}：预览不可用（{detail}）。")
         return {"result": result}
     return {"ui": {"images": images}, "result": result}
 

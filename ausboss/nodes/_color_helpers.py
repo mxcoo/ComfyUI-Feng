@@ -80,7 +80,7 @@ def parse_fill_color(value: object, source: str = "Transform fill_color") -> tup
     # repeated line.
     safe = text.encode("ascii", "backslashreplace").decode("ascii")
     warn_once(
-        f"{{source}}：解析不了 '{{safe}}'，改用中灰 128,128,128。",
+        f"{source}：解析不了 '{safe}'，改用中灰 128,128,128。",
         _warned_values,
         key=f"{source}\x00{text}",
         limit=_WARNED_VALUE_LIMIT,

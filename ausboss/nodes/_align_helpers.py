@@ -107,7 +107,7 @@ def aligned_size(width: int, height: int, multiple: int, mode: str) -> tuple[int
     smallest legal size.
     """
     if mode not in ALIGN_MODES:
-        raise ValueError(f"Align Image 的 mode 只能取 {{ALIGN_MODES}}，不能是 '{{mode}}'。")
+        raise ValueError(f"Align Image 的 mode 只能取 {ALIGN_MODES}，不能是 '{mode}'。")
     step = max(1, int(multiple))
     return (
         _round_to_multiple(int(width), step, mode),
@@ -154,7 +154,7 @@ def align_image(
         )
     if pad_fill not in PAD_FILLS:
         raise ValueError(
-            f"Align Image 的 pad_fill 只能取 {{PAD_FILLS}}，不能是 '{{pad_fill}}'。"
+            f"Align Image 的 pad_fill 只能取 {PAD_FILLS}，不能是 '{pad_fill}'。"
         )
     height, width = int(image.shape[1]), int(image.shape[2])
     target_w, target_h = aligned_size(width, height, multiple, mode)

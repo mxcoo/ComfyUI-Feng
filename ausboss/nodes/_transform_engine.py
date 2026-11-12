@@ -96,7 +96,7 @@ def _bounded_padding(value: int, name: str) -> int:
     value = int(value)
     if value < 0 or value > MAX_PADDING:
         raise ValueError(
-            f"Transform 的输入 '{{name}}' 应在 0..{{MAX_PADDING}} 之间，收到的是 {{value}}。"
+            f"Transform 的输入 '{name}' 应在 0..{MAX_PADDING} 之间，收到的是 {value}。"
         )
     return value
 
@@ -131,7 +131,7 @@ def _validate_source(image: Image.Image) -> None:
         raise ValueError("Transform：源图片至少要有一个像素。")
     if width > MAX_DIMENSION or height > MAX_DIMENSION:
         raise ValueError(
-            f"Transform 的源尺寸每边最多 {{MAX_DIMENSION}} 像素。"
+            f"Transform 的源尺寸每边最多 {MAX_DIMENSION} 像素。"
         )
 
 
@@ -389,7 +389,7 @@ def transform_pil_batch(
             first_geometry = geometry
         elif output.size != (first_geometry.output_width, first_geometry.output_height):
             raise ValueError(
-                f"Transform：第 {{index}} 帧算出的尺寸与第 0 帧不一致。"
+                f"Transform：第 {index} 帧算出的尺寸与第 0 帧不一致。"
             )
         image_array = np.asarray(output, dtype=np.float32) / 255.0
         mask_array = np.asarray(mask, dtype=np.float32) / 255.0
@@ -457,7 +457,7 @@ def transform_tensor_batch_chunked(
     """
     if not isinstance(image, torch.Tensor) or image.ndim != 4:
         received = tuple(image.shape) if isinstance(image, torch.Tensor) else type(image).__name__
-        raise ValueError(f"Transform 的输入 'image' 需要 BHWC 格式的批次，收到的是 {{received}}。")
+        raise ValueError(f"Transform 的输入 'image' 需要 BHWC 格式的批次，收到的是 {received}。")
     total = int(image.shape[0])
     size = max(1, int(chunk_size))
     output = mask = geometry = None
@@ -470,7 +470,7 @@ def transform_tensor_batch_chunked(
             output = torch.empty((total, *chunk_output.shape[1:]), dtype=chunk_output.dtype, device=chunk_output.device)
             mask = torch.empty((total, *chunk_mask.shape[1:]), dtype=chunk_mask.dtype, device=chunk_mask.device)
         elif chunk_output.shape[1:] != output.shape[1:]:
-            raise ValueError(f"Transform：第 {{start}} 帧算出的尺寸与第 0 帧不一致。")
+            raise ValueError(f"Transform：第 {start} 帧算出的尺寸与第 0 帧不一致。")
         count = int(chunk_output.shape[0])
         output[start : start + count] = chunk_output
         mask[start : start + count] = chunk_mask

@@ -101,7 +101,7 @@ def _save_background(picture, prefix: str) -> dict | None:
         return {"filename": name, "subfolder": subfolder, "type": "temp"}
     except Exception as exc:  # noqa: BLE001 - the picture on the face is a convenience
         detail = str(exc).encode("ascii", "replace").decode("ascii")
-        print(f"[AusBoss] Layout Boxes 的背景没有显示在节点上（{{detail}}）。")
+        print(f"[AusBoss] Layout Boxes 的背景没有显示在节点上（{detail}）。")
         return None
 
 

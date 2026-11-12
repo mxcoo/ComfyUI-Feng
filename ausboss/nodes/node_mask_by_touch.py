@@ -587,7 +587,7 @@ class _Session:
         self.close()
         for kind in self.KINDS:
             _TRUST[(self.token, kind)] = False
-        warn_once(f"Mask by Touch：向 SAM 3 快速提问的通道已关闭（{{why}}），结果一样，只是更慢。", _NOTED)
+        warn_once(f"Mask by Touch：向 SAM 3 快速提问的通道已关闭（{why}），结果一样，只是更慢。", _NOTED)
 
     def _repeats(self, kind: str) -> bool:
         """Does the run's first question of this kind get its answer again?"""
@@ -1122,7 +1122,7 @@ class AusBossMaskByTouch:
             picture.save(Path(folder) / file, **options)
         except Exception as error:  # noqa: BLE001 - any failure here is non-fatal
             detail = str(error).encode("ascii", "replace").decode("ascii")
-            warn_once(f"Mask by Touch：取不到节点上的图片（{{detail}}）。", _NOTED, limit=64)
+            warn_once(f"Mask by Touch：取不到节点上的图片（{detail}）。", _NOTED, limit=64)
             return None
         return {"filename": file, "subfolder": subfolder, "type": "temp"}
 
