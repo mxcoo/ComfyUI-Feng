@@ -172,10 +172,7 @@ def method_uses_optical_flow(method: str) -> bool:
         return True
     if name == BLEND_METHOD:
         return False
-    raise ValueError(
-        f"Frame Interpolate does not know the method '{method}'. "
-        f"Choose '{BLEND_METHOD}' or '{FLOW_METHOD}'."
-    )
+    raise ValueError(f"Frame Interpolate 不认识方法 '{method}'。请选 '{BLEND_METHOD}' 或 '{FLOW_METHOD}'。")
 
 
 def raft_checkpoint_path(weights, hub_dir: str | Path | None = None) -> Path:
@@ -204,10 +201,7 @@ def _verify_checkpoint_hash(path: Path) -> None:
             digest.update(chunk)
     expected = match.group(1).lower()
     if not digest.hexdigest().startswith(expected):
-        raise RuntimeError(
-            f"Frame Interpolate found a corrupt RAFT checkpoint, '{path.name}': "
-            f"its SHA-256 does not start with the expected {expected}."
-        )
+        raise RuntimeError(f"Frame Interpolate 发现 RAFT 权重已损坏：'{path.name}'，它的 SHA-256 不以预期的 {expected} 开头。")
 
 
 @lru_cache(maxsize=1)
@@ -226,11 +220,10 @@ def _load_raft_model():
         # names a place on the server's disk.
         logging.warning("[AusBoss] Frame Interpolate 需要位于 %s 的 RAFT-small 权重文件", checkpoint)
         raise RuntimeError(
-            "Frame Interpolate's optical flow method will not download model "
-            "weights automatically. Download the RAFT-small checkpoint only "
-            f"after approving that model download, then place {checkpoint.name} "
-            "in PyTorch's checkpoints folder (the server console shows where), "
-            f"or switch the method to 'blend'. Source URL: {weights.url}"
+            "Frame Interpolate 的光流方法不会自动下载模型权重。先确认要下载这个模型，"
+            f"再把 RAFT-small 权重文件 {checkpoint.name} 放到 PyTorch 的 checkpoints 目录"
+            "（具体位置看服务端控制台），"
+            f"或者把方法换成 'blend'。权重来源：{weights.url}"
         )
     try:
         _verify_checkpoint_hash(checkpoint)
@@ -239,12 +232,7 @@ def _load_raft_model():
         model.load_state_dict(state_dict)
     except Exception as exc:
         logging.warning("[AusBoss] Frame Interpolate 加载 %s 失败：%s", checkpoint, exc)
-        raise RuntimeError(
-            "Frame Interpolate could not load the RAFT-small optical flow "
-            f"weights from '{checkpoint.name}'. Replace the cached file with the "
-            "official checkpoint or switch to 'blend'. The server console has "
-            "the details."
-        ) from exc
+        raise RuntimeError(f"Frame Interpolate 无法从 '{checkpoint.name}' 加载 RAFT-small 光流权重。把缓存文件换成官方权重，或者把方法换成 'blend'。细节看服务器控制台。") from exc
     model.eval()
     return model
 

@@ -1,98 +1,72 @@
-# AusBoss nodes: a guide for AI agents
+# AusBoss 节点：给 AI agent 的指南
 
-Give this page to an AI agent and it can pick the right AusBoss node for a job,
-wire it into a workflow, and find the help for every input. It ships with the
-pack, so it is also in your ComfyUI install, under
-`custom_nodes/<this pack>/js/docs/agents/`.
+把这一页交给 AI agent，它就能为一项工作挑对 AusBoss 节点、接进工作流，并找到每个输入的帮助。这一页随包发布，所以它也在你的 ComfyUI 安装里，位于 `custom_nodes/<this pack>/js/docs/agents/`。
 
-**If you are the agent:** find the job in the table below, then read that
-node's help page before you wire it. Each help page is
-`js/docs/<node id>.md` in this pack. ComfyUI shows the same page in its node
-help panel.
+**如果你是 agent：** 在下表里找到那项工作，接线之前先读那个节点的帮助页。每个帮助页都是本包里的 `js/docs/<node id>.md`。ComfyUI 在节点帮助面板里显示的是同一页。
 
-## Which node for which job
+## 哪项工作用哪个节点
 
-| The job | Node (id) |
+| 工作 | 节点（id） |
 |---|---|
-| Pick a picture size by shape and megapixels, in place of Empty Latent | Latent Size (`AUSBOSS_NODES_Resolution`) |
-| Resize a picture, or snap its size to a multiple | Image Resize (`AUSBOSS_NODES_ImageResize`), Align Image (`AUSBOSS_NODES_AlignImage`) |
-| Read a picture's width and height | Image Size (`AUSBOSS_NODES_ImageSize`) |
-| Outpaint: load a picture and add empty space around it | Load Image + Pad (`AUSBOSS_NODES_LoadImagePad`) |
-| Turn, crop and pad a picture in one node | Image Crop + Rotate + Pad (`AUSBOSS_NODES_ImageCropRotatePad`) |
-| Inpaint only the masked part, then put it back | Crop For Inpaint (`AUSBOSS_NODES_CropForInpaint`) then Stitch Inpaint (`AUSBOSS_NODES_StitchInpaint`) |
-| Remove a watermark or an object with no prompt | LaMa Inpaint (`AUSBOSS_NODES_LaMaInpaint`) |
-| Get a mask by typing what to find | Mask by Name (`AUSBOSS_NODES_MaskByName`) |
-| Get a mask by clicking the thing | Mask by Touch (`AUSBOSS_NODES_MaskByTouch`) |
-| Grow, shrink, fill or smooth a mask | Mask Refine (`AUSBOSS_NODES_RefineMask`) |
-| Keep the untouched parts of a picture exactly as they were while an edit model edits it | Edit Lock (`AUSBOSS_NODES_EditLock`) then Edit Lock Restore (`AUSBOSS_NODES_EditLockRestore`) |
-| Line an edited picture back up with the original | Realign to Source (`AUSBOSS_NODES_RealignToSource`, experimental) |
-| Match one picture's colors to another | Color Match (`AUSBOSS_NODES_ColorMatch`) |
-| Upscale big pictures in tiles | Tiled Upscale (`AUSBOSS_NODES_TiledUpscale`) then Tiled Upscale Stitch (`AUSBOSS_NODES_TiledUpscaleStitch`) |
-| Compare two pictures | Image Compare A/B (`AUSBOSS_NODES_Compare`) |
-| Save pictures (PNG, lossless WebP or JPEG XL) | Save Image (`AUSBOSS_NODES_SaveImage`) |
-| Run a workflow on each picture in a folder | Image Folder (`AUSBOSS_NODES_ImageFolder`) |
-| Apply a stack of LoRAs | LoRA Loader (`AUSBOSS_NODES_LoraLoader`) |
-| Write a MiniMax H3 or Pika H3 Flex prompt from plain words | H3 Prompt Writer (`AUSBOSS_NODES_H3PromptWriter`): [node help](../AUSBOSS_NODES_H3PromptWriter.md) |
-| Krea 2 prompt, and Krea 2 outpainting | Krea 2 Encode (`AUSBOSS_NODES_Krea2Encode`), Krea 2 Outpaint Model Patch (`AUSBOSS_NODES_Krea2OutpaintModelPatch`) |
-| Load or save a video | Load Video (`AUSBOSS_NODES_LoadVideo`), Save Video (`AUSBOSS_NODES_SaveVideo`) |
-| Load a sound file and keep only part of it, up to a set length | Load Audio (`AUSBOSS_NODES_LoadAudio`) |
-| Turn, crop and pad a video: one frame, or the whole clip | Video Crop + Rotate + Pad → Frame (`AUSBOSS_NODES_VideoCropRotatePad`), → Clip (`AUSBOSS_NODES_VideoCropRotatePadClip`) |
-| Change a clip's frame rate | Frame Interpolate (`AUSBOSS_NODES_FrameInterpolate`) |
-| Make a clip larger and sharper | FlashVSR Upscale (`AUSBOSS_NODES_FlashVSRUpscale`) |
-| Work with frame batches | Select Frame, Select Every Nth, Split Batch, Merge Batches (`AUSBOSS_NODES_SelectFrame`, `_SelectEveryNth`, `_SplitBatch`, `_MergeBatches`) |
-| Run a workflow once for each line of text, such as a list of prompts | Text Lines (`AUSBOSS_NODES_TextLines`) |
-| One shared seed, number or text | Seed, Integer, Float, Text (`AUSBOSS_NODES_Seed`, `_Integer`, `_Float`, `_Text`) |
-| A prompt that picks from `{a\|b\|c}` choices on each run, by seed | Prompt Variations (`AUSBOSS_NODES_PromptVariations`) |
-| Do maths on numbers | Math Expression (`AUSBOSS_NODES_MathExpression`) |
-| Show text on the node, or the picture while it is made | Show Text (`AUSBOSS_NODES_ShowText`), Step Preview (`AUSBOSS_NODES_StepPreview`) |
-| Free graphics memory between steps | Free Memory (`AUSBOSS_NODES_FreeMemory`) |
-| Time the whole run | Run Timer (`AUSBOSS_NODES_RunTimer`) |
-| Turn parts of a workflow off and on | Workflow Switches (`AUSBOSS_NODES_WorkflowSwitches`): [its own agent guide](workflow_switches.md) |
-| Explain a shared workflow on the canvas | Workflow Note (`AUSBOSS_NODES_WorkflowNote`), Callout (`AUSBOSS_NODES_Callout`) |
-| Add compact help or colored link buttons | Workflow Note Tile (`AUSBOSS_NODES_WorkflowNoteTile`), Callout Tile (`AUSBOSS_NODES_CalloutTile`) |
-| Lay out boxes of things and words on a canvas | Layout Boxes (`AUSBOSS_NODES_LayoutBoxes`) |
+| 按形状和百万像素挑画面尺寸，替代 Empty Latent | Latent 尺寸 🆎（`AUSBOSS_NODES_Resolution`） |
+| 缩放画面，或把尺寸对齐到某个倍数 | 图像缩放 🆎（`AUSBOSS_NODES_ImageResize`）、对齐图像 🆎（`AUSBOSS_NODES_AlignImage`） |
+| 读出画面的宽与高 | 图像尺寸 🆎（`AUSBOSS_NODES_ImageSize`） |
+| 扩图：加载画面并在四周加出空白 | 加载图像 + 扩边 🆎（`AUSBOSS_NODES_LoadImagePad`） |
+| 在一个节点里旋转、裁剪、扩边画面 | 图像裁剪 + 旋转 + 扩边 🆎（`AUSBOSS_NODES_ImageCropRotatePad`） |
+| 只对遮罩住的部分做局部重绘，再贴回原处 | 局部重绘裁剪 🆎（`AUSBOSS_NODES_CropForInpaint`），再接 局部重绘拼接 🆎（`AUSBOSS_NODES_StitchInpaint`） |
+| 不用提示词去掉水印或某个物体 | LaMa 局部重绘 🆎（`AUSBOSS_NODES_LaMaInpaint`） |
+| 输入要找的东西来取遮罩 | 按名字取遮罩 🆎（`AUSBOSS_NODES_MaskByName`） |
+| 点一下那个东西来取遮罩 | 点选取遮罩 🆎（`AUSBOSS_NODES_MaskByTouch`） |
+| 把遮罩长、缩、填补或平滑 | 遮罩精修 🆎（`AUSBOSS_NODES_RefineMask`） |
+| 编辑模型改图时，让没动过的部分保持原样 | 编辑锁 🆎（`AUSBOSS_NODES_EditLock`），再接 编辑锁还原 🆎（`AUSBOSS_NODES_EditLockRestore`） |
+| 把改过的画面重新对齐回原图 | 与源图重新对齐（实验性 🧪） 🆎（`AUSBOSS_NODES_RealignToSource`） |
+| 把一张画面的颜色匹配到另一张 | 颜色匹配 🆎（`AUSBOSS_NODES_ColorMatch`） |
+| 分块放大画面 | 分块放大 🆎（`AUSBOSS_NODES_TiledUpscale`），再接 分块放大拼接 🆎（`AUSBOSS_NODES_TiledUpscaleStitch`） |
+| 比较两张画面 | 图像比较 A/B 🆎（`AUSBOSS_NODES_Compare`） |
+| 保存画面（PNG、无损 WebP 或 JPEG XL） | 保存图像 🆎（`AUSBOSS_NODES_SaveImage`） |
+| 对文件夹里的每张画面跑一遍工作流 | 图像文件夹 🆎（`AUSBOSS_NODES_ImageFolder`） |
+| 叠一串 LoRA | LoRA 加载器 🆎（`AUSBOSS_NODES_LoraLoader`） |
+| 用大白话写出 MiniMax H3 或 Pika H3 Flex 的提示词 | H3 提示词撰写 🆎（`AUSBOSS_NODES_H3PromptWriter`）：[节点帮助](../AUSBOSS_NODES_H3PromptWriter.md) |
+| Krea 2 提示词，以及 Krea 2 扩图 | Krea 2 编码 🆎（`AUSBOSS_NODES_Krea2Encode`）、Krea 2 扩图模型补丁 🆎（`AUSBOSS_NODES_Krea2OutpaintModelPatch`） |
+| 加载或保存视频 | 加载视频 🆎（`AUSBOSS_NODES_LoadVideo`）、保存视频 🆎（`AUSBOSS_NODES_SaveVideo`） |
+| 加载声音文件，只留其中一段，最长到设定长度 | 加载音频 🆎（`AUSBOSS_NODES_LoadAudio`） |
+| 旋转、裁剪、扩边视频：单帧，或整段片段 | 视频裁剪 + 旋转 + 扩边 → 单帧 🆎（`AUSBOSS_NODES_VideoCropRotatePad`）、→ 片段 🆎（`AUSBOSS_NODES_VideoCropRotatePadClip`） |
+| 改片段的帧率 | 帧插值 🆎（`AUSBOSS_NODES_FrameInterpolate`） |
+| 把片段放大得更清晰 | FlashVSR 放大 🆎（`AUSBOSS_NODES_FlashVSRUpscale`） |
+| 处理帧批次 | 选择帧 🆎、每隔 N 帧选取 🆎、拆分批次 🆎、合并批次 🆎（`AUSBOSS_NODES_SelectFrame`、`_SelectEveryNth`、`_SplitBatch`、`_MergeBatches`） |
+| 每行文字跑一遍工作流，比如一串提示词 | 文本行 🆎（`AUSBOSS_NODES_TextLines`） |
+| 共用一个种子、数字或文本 | 种子 🆎、整数 🆎、浮点数 🆎、文本 🆎（`AUSBOSS_NODES_Seed`、`_Integer`、`_Float`、`_Text`） |
+| 每次运行按种子从 `{a\|b\|c}` 这样的选项里挑一个的提示词 | 提示词变体 🆎（`AUSBOSS_NODES_PromptVariations`） |
+| 对数字做运算 | 数学表达式 🆎（`AUSBOSS_NODES_MathExpression`） |
+| 在节点上显示文本，或在画面生成过程中显示它 | 显示文本 🆎（`AUSBOSS_NODES_ShowText`）、分步预览 🆎（`AUSBOSS_NODES_StepPreview`） |
+| 在步与步之间释放显存 | 释放显存 🆎（`AUSBOSS_NODES_FreeMemory`） |
+| 给整次运行计时 | 运行计时器 🆎（`AUSBOSS_NODES_RunTimer`） |
+| 开关工作流里的部分节点 | 工作流开关 🆎（`AUSBOSS_NODES_WorkflowSwitches`）：[它自己的 agent 指南](workflow_switches.md) |
+| 在画布上说明分享出去的工作流 | 工作流说明卡 🆎（`AUSBOSS_NODES_WorkflowNote`）、标注便签 🆎（`AUSBOSS_NODES_Callout`） |
+| 加上紧凑的帮助，或彩色链接按钮 | 工作流说明磁贴 🆎（`AUSBOSS_NODES_WorkflowNoteTile`）、标注图块 🆎（`AUSBOSS_NODES_CalloutTile`） |
+| 把物件和文字的框摆在画布上 | 布局框 🆎（`AUSBOSS_NODES_LayoutBoxes`） |
 
-Every node's display name ends in 🆎 and sits under `🆎 AusBoss/<group>` in
-the node menu. In a workflow file and in the API, a node is named by its id,
-the `AUSBOSS_NODES_...` key above.
+每个节点的显示名都以 🆎 结尾，在节点菜单里位于 `🆎 AusBoss/<group>` 之下。在工作流文件和 API 里，节点用它的 id 命名，就是上面那些 `AUSBOSS_NODES_...` 键。
 
-## Before you edit a workflow
+## 改工作流之前
 
-- **Read settings by name.** A saved workflow keeps each node's settings
-  twice: by position in `widgets_values`, and by name in
-  `widgets_values_named`. Read and write by name, and keep both copies in
-  step.
-- **Look at a node's inputs and outputs** in the running ComfyUI:
-  `GET /object_info/<node id>` lists them with their types and defaults.
-- **Inputs never get renamed or reordered** after a release, so a workflow
-  that worked keeps working.
-- **Media loaders start blank** in the example workflows. Put in the file the
-  person wants to use before you queue.
+- **按名字读设置。** 存下来的工作流把每个节点的设置存两遍：按位置存在 `widgets_values` 里，按名字存在 `widgets_values_named` 里。按名字读写，并让两份保持同步。
+- **在运行中的 ComfyUI 里看一个节点的输入与输出**：`GET /object_info/<node id>` 会连同类型和默认值一起列出它们。
+- **输入在发布之后不会改名，也不会换序**，所以能跑的工作流会一直能跑。
+- **示例工作流里的媒体加载器是空的。** 排队之前先填进对方要用的文件。
 
-## H3 swaps and clip duration
+## H3 换人与片段时长
 
-For a swap, keep the target selector on its own line. An optional separate line,
-`@1 looks like a woman with blonde hair and a black hoodie.`, describes the
-connected replacement person in Picture 1; use its actual picture number. This
-can help express appearance but does not guarantee identity. Do not add it to
-other jobs. Existing scripts without it keep their previous behavior.
+做换人时，把目标选择器单独放一行。还可以另起一行，`@1 looks like a woman with blonde hair and a black hoodie.`，描述图片 1 里接上的替换人物；用它实际的图片编号。这一行有助于表达外观，但不保证身份一致。不要把它加到其他工作上。没有这一行的现有脚本保持原来的行为。
 
-An active video sets the duration for **swap the person**, **change something**
-and **new voice**. The card says **From the clip** and hides numeric timeline
-retiming; trim or limit the upstream clip instead. Do not infer the final frame
-count from raw source metadata: upstream processing and H3 frame rounding apply.
-Other jobs and video OFF still use **Length** normally.
+接上视频时，**swap the person**、**change something** 和 **new voice** 的时长由它决定。卡片上显示 **From the clip**，并隐藏对时间轴的数值重定时；改为在上游裁短或限制片段。不要用源文件的元数据推断最终帧数：上游的处理和 H3 的帧取整都会起作用。其他工作以及视频关闭时，仍照常用 **Length**。
 
-## Example workflows
+## 示例工作流
 
-`example_workflows/` in this pack holds complete workflows, each with a
-picture of what it makes. Each one starts with a Workflow Note that lists the
-model files it needs and where they go. Start from the closest one rather
-than building from nothing.
+本包的 `example_workflows/` 里是完整的工作流，每个都带一张它产出的画面。每个都以一张工作流说明卡开头，列出它需要的模型文件以及该放的位置。从最接近的那个改起，不要从零搭。
 
-## When something goes wrong
+## 出问题的时候
 
-- Read the node's help page again, including its "Technical details" or "Notes" part when it has one.
-- Search the pack's GitHub issues: https://github.com/ausboss/ComfyUI-AusBoss/issues
-- A new bug report should name the ComfyUI version, the pack version from
-  the console banner, the node, and the smallest workflow that shows it.
+- 再读一遍那个节点的帮助页，有「技术细节」或「备注」部分的话一并读。
+- 搜本包的 GitHub issues：https://github.com/ausboss/ComfyUI-AusBoss/issues
+- 新的 bug 报告要写明 ComfyUI 版本、控制台横幅里的包版本、涉及的节点，以及能复现它的最小工作流。

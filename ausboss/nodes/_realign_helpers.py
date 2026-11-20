@@ -413,8 +413,7 @@ def measure(source: torch.Tensor, edit: torch.Tensor, mode: str = "zoom + shift"
     if region is not None:
         x0, y0, x1, y1 = (int(v) for v in region)
         if not (0 <= x0 < x1 <= width and 0 <= y0 < y1 <= height):
-            raise ValueError(f"Realign to Source: the picture's area {region} is not inside the "
-                             f"{width}x{height} canvas.")
+            raise ValueError(f'Realign to Source：图片的区域 {region} 不在 {width}x{height} 的画布之内。')
         region = (x0, y0, x1, y1)
         if (x0, y0, x1, y1) == (0, 0, width, height):
             region = None

@@ -216,10 +216,7 @@ def _as_mask(
         # Most often core Load Image's 64x64 stand-in for "nothing painted".
         raise ValueError(mask_size_mismatch(mask, int(image.shape[1]), int(image.shape[2])))
     if mask.shape[0] not in (1, image.shape[0]):
-        raise ValueError(
-            f"Mask batch {mask.shape[0]} cannot broadcast across "
-            f"image batch {image.shape[0]}."
-        )
+        raise ValueError(f'遮罩批次 {mask.shape[0]} 无法广播到图像批次 {image.shape[0]}。')
     return mask.float().clamp(0.0, 1.0)
 
 
@@ -230,10 +227,7 @@ def _resize_image(
     image: torch.Tensor, width: int, height: int, algorithm: str = "bilinear"
 ) -> torch.Tensor:
     if algorithm not in RESIZE_ALGORITHMS:
-        raise ValueError(
-            f"Crop For Inpaint rescale_algorithm must be one of "
-            f"{RESIZE_ALGORITHMS}, not '{algorithm}'."
-        )
+        raise ValueError(f"Crop For Inpaint 的 rescale_algorithm 只能是 {RESIZE_ALGORITHMS} 之一，不能是 '{algorithm}'。")
     moved = image.movedim(-1, 1).contiguous()
     if algorithm == "nearest":
         resized = functional.interpolate(moved, size=(height, width), mode="nearest-exact")
@@ -452,10 +446,7 @@ def build_crop(
     use_target = target_w > 0 or target_h > 0
     megapixels = max(0.0, float(target_megapixels))
     if rescale_algorithm not in RESIZE_ALGORITHMS:
-        raise ValueError(
-            f"Crop For Inpaint rescale_algorithm must be one of "
-            f"{RESIZE_ALGORITHMS}, not '{rescale_algorithm}'."
-        )
+        raise ValueError(f"Crop For Inpaint 的 rescale_algorithm 只能是 {RESIZE_ALGORITHMS} 之一，不能是 '{rescale_algorithm}'。")
 
     bbox = mask_bbox(mask)
     keep_box = bbox
@@ -653,10 +644,13 @@ def apply_stitch(
     exact with the toggle off, since the spread deliberately rewrites the
     feathered band.
 
-    ``color_match`` (0..1) shifts the patch's tone by the offset measured
-    in the feathered band (:func:`estimate_tone_offset`) before blending,
-    so an outpaint whose new bands came out a touch lighter or warmer than
-    the picture lands on the picture's own tone. 0 leaves the patch alone.
+    ``color_match`` (0..1) shifts the patch's tone by the measured drift
+    before blending, so a new area that came out a touch lighter or warmer
+    than the picture lands on the picture's own tone. An outpaint is read
+    across its seams (:func:`tone_offset_field`); an inpaint, which has no
+    source rectangle, inside its painted area (:func:`inner_tone_offset`),
+    or in the feathered band (:func:`estimate_tone_offset`) when the
+    painted area holds new content. 0 leaves the patch alone.
 
     ``seam`` "classic" is everything above. "blend in" replaces it on a
     stitcher that knows where the picture's edge is (Load Image + Pad and
@@ -690,21 +684,12 @@ def apply_stitch(
         # keeps 8n+1, Wan 4n+1) and drop the tail. Paste what came back
         # over the matching leading source frames and say so, rather than
         # throw away a long run over the count.
-        print(
-            f"[AusBoss] Stitch Inpaint: {frames} inpainted frame(s) for a "
-            f"stitcher built from {batch}; stitching the first {frames} and "
-            f"dropping the last {batch - frames} source frame(s)."
-        )
+        print(f'[AusBoss] Stitch Inpaint：局部重绘有 {frames} 帧，拼接器是按 {batch} 帧建的；只拼前 {frames} 帧，丢掉最后 {batch - frames} 帧源画面。')
         out = canvas[:frames].clone()
         if blend.shape[0] == batch:
             blend = blend[:frames]
     else:
-        raise ValueError(
-            f"Cannot stitch {frames} inpainted frame(s) into a stitcher "
-            f"built from {batch} image(s); a stitcher built from one image "
-            "broadcasts, and a longer stitcher is trimmed to the frames "
-            "that came back, but it cannot invent frames it never had."
-        )
+        raise ValueError(f'无法把 {frames} 帧局部重绘结果拼进按 {batch} 张图建的拼接器：一张图建的会广播，长一些的按回来的帧数裁短，但它变不出从来没有的帧。')
     if inpainted.shape[3] == 4 and canvas.shape[3] == 3:
         # Qwen Image 2.1's VAE decodes RGBA; an RGB source has nowhere to
         # put the alpha, so it goes rather than failing the run.
@@ -713,15 +698,9 @@ def apply_stitch(
     # takes the picture's own alpha where it lands, so they stay as they were.
     keep_alpha = inpainted.shape[3] == 3 and canvas.shape[3] == 4
     if inpainted.shape[3] != canvas.shape[3] and not keep_alpha:
-        raise ValueError(
-            f"Inpainted channels ({inpainted.shape[3]}) do not match the "
-            f"cropped image ({canvas.shape[3]})."
-        )
+        raise ValueError(f'局部重绘结果的通道数（{inpainted.shape[3]}）和裁剪出的图像（{canvas.shape[3]}）对不上。')
     if blend.shape[0] not in (1, frames):
-        raise ValueError(
-            f"Blend mask batch {blend.shape[0]} cannot broadcast across "
-            f"{frames} inpainted frame(s)."
-        )
+        raise ValueError(f'混合遮罩批次 {blend.shape[0]} 无法广播到 {frames} 帧局部重绘结果。')
 
     patch = inpainted.to(dtype=out.dtype, device=out.device)
     sent = stitcher.get("sampler_size")
@@ -787,7 +766,13 @@ def apply_stitch(
             # Trimmed like the blend when fewer frames came back.
             generated = generated[:frames] if generated.shape[0] > frames else generated
             generated = generated[:, cy : cy + ch, cx : cx + cw].to(out.device)
-        field = tone_offset_field(patch, out[:, cy : cy + ch, cx : cx + cw, :], alpha, bbox, generated)
+        region = out[:, cy : cy + ch, cx : cx + cw, :]
+        field = tone_offset_field(patch, region, alpha, bbox, generated)
+        if bbox is None:
+            # An inpaint has no source rectangle to read a seam across. Its
+            # drift is read just inside the painted area, where it holds.
+            inner, held = inner_tone_offset(patch, region, alpha, came_back)
+            field = torch.where(held.view(-1, 1, 1, 1), inner.view(-1, 1, 1, 3).expand_as(field), field)
         # Weighted by the blend: a fully generated pixel drifted by the whole
         # field, a band pixel the sampler mixed at alpha drifted by alpha of
         # it, and the blend below scales the correction by alpha once more.
@@ -838,6 +823,175 @@ def estimate_tone_offset(
     offset = numerator / denominator
     measured = ((trust * band).sum(dim=(1, 2)) > 1e-6).unsqueeze(-1)
     return torch.where(measured, offset, torch.zeros_like(offset))
+
+
+# An inpaint's drift is read in the painted area's own rim: this many
+# pixels in from where the paste becomes whole. The rim is where the new
+# part most often still shows what was there before (skin beside skin).
+INNER_RIM_PX = 32
+
+# Rim pixels within this many LAB units of the rim's median change count as
+# the same content, drifted. The reading is only used when at least
+# INNER_MIN_SHARE of the rim agrees and there are INNER_MIN_PIXELS of it.
+INNER_SAME_CONTENT = 8.0
+INNER_MIN_SHARE = 0.5
+INNER_MIN_PIXELS = 64
+
+# A larger change than this is new content (a jacket over skin), not a
+# drift: matching it would pull the new thing toward the old colour.
+INNER_MAX_SHIFT = 20.0
+
+
+# New content has no "before" in its own place (skin where a shirt was), so
+# it is read against the untouched picture beside it instead: the painted
+# area and the picture, each averaged within this many pixels of a point.
+NEIGHBOUR_REACH_PX = 48
+
+# A point counts as on the seam when each side fills this much of its reach.
+NEIGHBOUR_MIN_SIDE = 0.1
+
+# Seam points within INNER_MAX_SHIFT of each other show the same thing on
+# both sides (skin beside skin). Fewer than this share of the seam and the
+# new part is something else all round, so nothing is matched.
+NEIGHBOUR_MIN_SHARE = 0.25
+
+
+def _neighbour_offset(
+    new: torch.Tensor, old: torch.Tensor, whole: torch.Tensor, outside: torch.Tensor
+) -> torch.Tensor | None:
+    """LAB offset of new content against the untouched picture beside it.
+
+    ``new`` and ``old`` are one frame in LAB [H, W, 3]; ``whole`` marks the
+    fully pasted pixels and ``outside`` the untouched ones. Along the seam
+    the painted side's local mean is compared with the picture's. Where the
+    two are alike the model drew more of what is already there, and the gap
+    between them is its drift. None when too little of the seam is alike or
+    the alike part does not agree on one gap.
+    """
+    size = 2 * NEIGHBOUR_REACH_PX + 1
+
+    def local(values: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        weight = mask.to(values.dtype).unsqueeze(-1)
+        stack = torch.cat([values * weight, weight], dim=-1).movedim(-1, 0).unsqueeze(0)
+        stack = functional.avg_pool2d(stack, (1, size), stride=1, padding=(0, NEIGHBOUR_REACH_PX))
+        stack = functional.avg_pool2d(stack, (size, 1), stride=1, padding=(NEIGHBOUR_REACH_PX, 0))[0]
+        return (stack[:3] / stack[3:].clamp_min(1e-6)).movedim(0, -1), stack[3]
+
+    painted, painted_share = local(new, whole)
+    picture, picture_share = local(old, outside)
+    seam = (painted_share >= NEIGHBOUR_MIN_SIDE) & (picture_share >= NEIGHBOUR_MIN_SIDE)
+    gaps = (painted - picture)[seam]
+    if gaps.shape[0] < INNER_MIN_PIXELS:
+        return None
+    alike = gaps.norm(dim=-1) <= INNER_MAX_SHIFT
+    if int(alike.sum()) < INNER_MIN_PIXELS or float(alike.float().mean()) < NEIGHBOUR_MIN_SHARE:
+        return None
+    gaps = gaps[alike]
+    agree = (gaps - gaps.median(dim=0).values).norm(dim=-1) < INNER_SAME_CONTENT
+    if float(agree.float().mean()) < INNER_MIN_SHARE:
+        return None
+    return gaps[agree].median(dim=0).values
+
+
+def _area_resize(image: torch.Tensor, width: int, height: int) -> torch.Tensor:
+    """Shrink [B, H, W, C] by averaging the pixels each new one covers."""
+    return functional.interpolate(image.movedim(-1, 1), size=(height, width), mode="area").movedim(1, -1)
+
+
+def inner_tone_offset(
+    inpainted: torch.Tensor,
+    canvas: torch.Tensor,
+    blend: torch.Tensor,
+    sampled: tuple[int, int] | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-frame LAB drift of an inpaint, read inside the painted area.
+
+    :func:`estimate_tone_offset` reads the feathered band and assumes the
+    sampler mixed original and generated there by ``blend``. A workflow that
+    samples with its own, wider or softer noise mask breaks that: the model
+    leaves the band close to the original and drifts further in, so the band
+    reads a fraction of the drift (issue #361: 0.8 of 2.5 LAB units).
+
+    This reads the same pixels before and after in the rim of the fully
+    pasted area (``blend`` > 0.999, INNER_RIM_PX deep): the median change,
+    then the median again over the pixels that agree with it. Returns the
+    offsets [B, 3] and which frames hold [B]. A frame whose rim mostly
+    disagrees, or changed by more than INNER_MAX_SHIFT, is new content
+    rather than drift. That frame is read against the untouched picture
+    beside it (:func:`_neighbour_offset`), and holds at zero, left as
+    painted, when the picture beside it shows something else. Only a rim too
+    small to judge does not hold, and the caller keeps the band reading for it.
+
+    ``sampled`` is the (width, height) the model worked at. A crop from a
+    large picture is pasted back several times that size, and a rim measured
+    in pasted pixels would be a sliver at the very edge of what the model
+    painted, where it drifts least. The reading is taken at the model's
+    size instead, which also keeps its cost the same for any picture.
+    """
+    from ._color_helpers import rgb_to_lab
+
+    if sampled is not None:
+        width, height = int(sampled[0]), int(sampled[1])
+        if 0 < width < inpainted.shape[2] and 0 < height < inpainted.shape[1]:
+            inpainted = _area_resize(inpainted, width, height)
+            canvas = _area_resize(canvas, width, height)
+            blend = _area_resize(blend.unsqueeze(-1), width, height).squeeze(-1)
+    new = rgb_to_lab(inpainted[..., :3])
+    old = rgb_to_lab(canvas[..., :3])
+    diff = new - old
+    frames = diff.shape[0]
+    whole = (blend > 0.999).to(diff.dtype)
+    size = 2 * INNER_RIM_PX + 1
+    # A pixel is deeper than the rim when nothing within INNER_RIM_PX of it
+    # is outside the whole paste. The crop's own border does not count as
+    # outside: the painted area simply runs off the crop there.
+    # One pass along each axis: the same square reach at a fraction of the cost.
+    outside = (1.0 - whole).unsqueeze(1)
+    outside = functional.max_pool2d(outside, (1, size), stride=1, padding=(0, INNER_RIM_PX))
+    outside = functional.max_pool2d(outside, (size, 1), stride=1, padding=(INNER_RIM_PX, 0))
+    deep = 1.0 - outside.squeeze(1)
+    rim = (whole > 0) & (deep < 0.5)
+    rim = torch.where(rim.flatten(1).any(dim=1).view(-1, 1, 1), rim, whole > 0)
+    pasted = whole > 0
+    untouched = blend < 0.001
+    if rim.shape[0] != frames:
+        rim = rim.expand(frames, -1, -1)
+        pasted = pasted.expand(frames, -1, -1)
+        untouched = untouched.expand(frames, -1, -1)
+    # See-through pixels hold whatever colour sits under the clear part.
+    if inpainted.shape[-1] > 3:
+        rim = rim & (inpainted[..., 3] >= 0.999)
+        pasted = pasted & (inpainted[..., 3] >= 0.999)
+    if canvas.shape[-1] > 3:
+        rim = rim & (canvas[..., 3] >= 0.999)
+        untouched = untouched & (canvas[..., 3] >= 0.999)
+
+    def beside(index: int) -> torch.Tensor:
+        gap = _neighbour_offset(new[index], old[index], pasted[index], untouched[index])
+        return offsets[index] if gap is None else gap
+
+    offsets = torch.zeros((frames, 3), dtype=diff.dtype, device=diff.device)
+    held = torch.zeros((frames,), dtype=torch.bool, device=diff.device)
+    for index in range(frames):
+        changes = diff[index][rim[index]]
+        if changes.shape[0] < INNER_MIN_PIXELS:
+            continue
+        # From here the rim is large enough to judge, so this reading stands
+        # and the band is not asked. New content keeps a zero shift: the band
+        # of a repainted edge reads the new colour itself as drift (a yellow
+        # swimsuit over skin turned the whole patch blue).
+        held[index] = True
+        middle = changes.median(dim=0).values
+        agree = (changes - middle).norm(dim=-1) < INNER_SAME_CONTENT
+        if float(agree.float().mean()) < INNER_MIN_SHARE:
+            offsets[index] = beside(index)
+            continue
+        offset = changes[agree].median(dim=0).values
+        if float(offset.norm()) > INNER_MAX_SHIFT:
+            offsets[index] = beside(index)
+            continue
+        offsets[index] = offset
+    return offsets, held
 
 
 def _band_weights(blend: torch.Tensor) -> torch.Tensor:
@@ -1065,10 +1219,7 @@ def stitch_blend_mask(stitcher: dict, frames: int = 1, seam: str = SEAM_CLASSIC)
         # apply_stitch kept the leading ones; the mask has to match them.
         blend = blend[:frames]
     if blend.shape[0] not in (1, frames):
-        raise ValueError(
-            f"Blend mask batch {blend.shape[0]} cannot broadcast across "
-            f"{frames} inpainted frame(s)."
-        )
+        raise ValueError(f'混合遮罩批次 {blend.shape[0]} 无法广播到 {frames} 帧局部重绘结果。')
     if seam == SEAM_BLEND_IN:
         plan = seam_plan(stitcher)
         if plan is not None:

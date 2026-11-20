@@ -103,10 +103,7 @@ def trim_window(
     if start >= end:
         raise ValueError(f"{source} 的 start_seconds 必须小于 end_seconds。")
     if duration > 0 and start >= duration - _TIME_EPSILON:
-        raise ValueError(
-            f"{source} starts at {start:.2f}s but the video is only "
-            f"{duration:.2f}s long."
-        )
+        raise ValueError(f'{source} 从 {start:.2f} 秒开始，但视频只有 {duration:.2f} 秒长。')
     return start, end
 
 
@@ -305,10 +302,7 @@ def decode_video_range(
             if cap and count >= cap:
                 break
     if buffer is None or count == 0:
-        raise ValueError(
-            f"{source} found no frames between {start:.2f}s and "
-            f"{'the end' if end == float('inf') else f'{end:.2f}s'} in '{path.name}'."
-        )
+        raise ValueError(f"{source} 在 {start:.2f} 秒到 {('the end' if end == float('inf') else f'{end:.2f}s')} 秒之间没有找到帧（'{path.name}'）。")
     batch = torch.from_numpy(buffer[:count]).float().div_(255.0)
     return batch, rate or fps
 

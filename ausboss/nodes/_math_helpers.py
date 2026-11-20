@@ -90,10 +90,7 @@ def _call(node: ast.Call, values: dict[str, float]) -> float:
     try:
         return float(apply(args))
     except ValueError:
-        raise ValueError(
-            f"Math Expression: {name}() cannot take these values "
-            "(for example the square root of a negative number)."
-        ) from None
+        raise ValueError(f'Math Expression：{name}() 不接受这些值（比如对负数开方）。') from None
 
 
 def _evaluate(node: ast.AST, values: dict[str, float]) -> float:
@@ -146,10 +143,7 @@ def evaluate_expression(expression: str, variables: dict[str, float] | None = No
     if not text:
         raise ValueError("Math Expression 收到空表达式。")
     if len(text) > MAX_EXPRESSION_LENGTH:
-        raise ValueError(
-            f"Math Expression is limited to {MAX_EXPRESSION_LENGTH} characters "
-            f"(got {len(text)})."
-        )
+        raise ValueError(f'Math Expression 最多 {MAX_EXPRESSION_LENGTH} 个字符（收到 {len(text)} 个）。')
     supplied = variables or {}
     values = {name: float(supplied.get(name, 0.0)) for name in ALLOWED_VARIABLES}
     try:

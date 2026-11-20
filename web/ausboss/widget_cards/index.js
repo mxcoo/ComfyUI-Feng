@@ -11,7 +11,8 @@ import { chainCallback, notifyAusbossChange } from "../shared/index.mjs";
 import { formatWidgetVisibility } from "../shared/save_video_formats.mjs";
 import { hideInputsInDef } from "../shared/widget_visibility.mjs";
 import { castChips } from "../shared/h3_cast_chips.mjs";
-import { clipSetsDuration } from "../shared/h3_duration.mjs";
+import { cameraChoiceLabel, clipSetsDuration } from "../shared/h3_duration.mjs";
+import { loadImagePreview, loadImageStrip } from "../shared/load_image_strip.mjs";
 import { momentStrip } from "../shared/moment_strip.mjs";
 import { mountWidgetCard } from "../shared/widget_card.mjs";
 import { FONT_UI, THEME } from "../shared/theme.mjs";
@@ -27,6 +28,9 @@ import { valueToTake, wiredLimits } from "../shared/wired_limits.mjs";
 const viewUrl = (value) => api.apiURL(`/view?${mediaViewQuery(value)}`);
 
 const isMode = (name, ...modes) => (values) => modes.includes(values[name]);
+// Load Image: the choices that read the width and height boxes.
+const loadImageUsesBox = (values) => ["fit inside", "crop to fill", "crop"].includes(values.size)
+  || (values.size === "crop to ratio" && values.ratio === "width : height");
 // Stitch Inpaint: Seam lives in the card's gear menu (shared/stitch_seam.mjs
 // holds the menu and the rules). The gear in the card's corner opens the
 // menu; a "blend in" chip beside it shows the mode at a glance and opens the
@@ -129,7 +133,13 @@ const CARDS = {
       { widget: "tolerance", label: "Tolerance", decimals: 2, suffix: "×" },
     ],
   },
-  AUSBOSS_NODES_EditLockRestore: { minWidth: 300, rows: [{ widget: "feather", label: "Feather", suffix: "px" }] },
+  AUSBOSS_NODES_EditLockRestore: {
+    minWidth: 300,
+    rows: [
+      { widget: "feather", label: "Feather", suffix: "px" },
+      { widget: "remove_tint", label: "去掉粉色调" },
+    ],
+  },
   AUSBOSS_NODES_ColorMatch: {
     minWidth: 300,
     rows: [
@@ -384,8 +394,8 @@ const CARDS = {
       { widget: "music", label: "Music", placeholder: "慢速钢琴：音乐让它更响" },
       { section: "图片与设置" },
       { panel: castChips, height: 30 },
-      { widget: "seconds", label: "Length", suffix: "s", readOnlyText: (node, values) => clipSetsDuration(node, values) ? "取自片段" : "", readOnlyTitle: "这个视频任务用上了传入的片段，因此「长度」不生效。" },
-      { widget: "camera", label: "Camera", kind: "select" },
+      { widget: "seconds", label: "Length", suffix: "s", readOnlyText: (node, values) => clipSetsDuration(node, values) ? "跟随片段" : "", readOnlyTitle: "这个视频任务用传进来的片段，所以 Length 用不上。" },
+      { widget: "camera", label: "Camera", kind: "select", labels: cameraChoiceLabel },
       { widget: "look", label: "Look", kind: "select" },
       { group: "more", label: "More" },
       { widget: "song_start", label: "歌曲起点", suffix: "s", decimals: 1, trimZeros: true, group: "more" },
@@ -414,24 +424,50 @@ const CARDS = {
     ],
   },
   AUSBOSS_NODES_LoadVideo: {
-    minWidth: 320, first: true, hide: ["upload"],
+    // Every nth and the frame limit (as Duration) are in the timing card
+    // under the player (js/load_video). The card hides them, so App mode can
+    // still show them as fields.
+    minWidth: 320, first: true, hide: ["upload", "every_nth", "max_frames"],
     rows: [
       { widget: "video", label: "Source", kind: "select", preview: { kind: "video", url: viewUrl },
         button: { text: PANEL_LABELS.load, title: "把视频上传到 ComfyUI 的 input 目录", onClick: (node) => node.widgets?.find((w) => w.name === "upload")?.callback?.() } },
-      { widget: "custom_width", label: "Width", suffix: "px", title: "0 表示保持源宽度；只填一边才能保住比例。" },
-      { widget: "custom_height", label: "Height", suffix: "px", title: "0 表示保持源高度；只填一边才能保住比例。" },
-      { widget: "every_nth", label: "每隔几个" },
-      { widget: "max_frames", label: "Limit" },
+      { widget: "custom_width", label: "Width", suffix: "px", title: "0 保留源宽度；只设一边可保持比例。" },
+      { widget: "custom_height", label: "Height", suffix: "px", title: "0 表示沿用源高度；只设一边才能保住比例。" },
     ],
   },
   AUSBOSS_NODES_LoadAudio: {
-    // The wave, IN and OUT live in the panel under the card (js/load_audio).
-    minWidth: 280, first: true, hide: ["upload"],
+    // The wave and Start, Duration and Ends at live in the panel under the
+    // card (js/load_audio); max_seconds is the Duration there. The card
+    // hides it, so App mode can still show it as a field.
+    minWidth: 280, first: true, hide: ["upload", "max_seconds"],
     rows: [
       { widget: "audio", label: "Source", kind: "select",
-        button: { text: PANEL_LABELS.load, title: "把音频文件上传到 ComfyUI 的 input 目录", onClick: (node) => node.widgets?.find((w) => w.name === "upload")?.callback?.() } },
-      { widget: "max_seconds", label: "最长时长", suffix: "s", decimals: 1, trimZeros: true,
-        title: "声音可以达到的最长时长。超出的部分会被截掉并标红。0 表示不限。" },
+        button: { text: PANEL_LABELS.load, title: "把声音文件上传到 ComfyUI 的输入文件夹", onClick: (node) => node.widgets?.find((w) => w.name === "upload")?.callback?.() } },
+    ],
+  },
+  // Load Image: the file, then where it is in the folder and the size it
+  // goes in and comes out at, then the size settings. ComfyUI's own picture
+  // preview sits under the card, so its mask editor and copy and paste work
+  // as they do on the stock loader.
+  AUSBOSS_NODES_LoadImage: {
+    minWidth: 320, first: true, hide: ["upload"],
+    rows: [
+      { widget: "image", label: "Source", kind: "select", preview: { kind: "image", url: viewUrl },
+        button: { text: PANEL_LABELS.load, title: "把图片上传到 ComfyUI 的 input 目录", onClick: (node) => node.widgets?.find((w) => w.name === "upload")?.callback?.() } },
+      { panel: loadImageStrip, height: 26 },
+      { panel: loadImagePreview, height: 72 },
+      { widget: "size", label: "Size", kind: "select" },
+      { widget: "megapixels", label: "Megapixels", suffix: "MP", when: isMode("size", "megapixels") },
+      { widget: "longest_side", label: "最长边", suffix: "px", when: isMode("size", "longest side") },
+      { widget: "scale", label: "Scale", suffix: "\u00d7", when: isMode("size", "scale") },
+      { widget: "ratio", label: "Ratio", kind: "select", when: isMode("size", "crop to ratio") },
+      { widget: "width", label: "Width", suffix: "px", when: loadImageUsesBox },
+      { widget: "height", label: "Height", suffix: "px", when: loadImageUsesBox },
+      { widget: "crop_from", label: "Keep", kind: "select", when: isMode("size", "crop to fill", "crop", "crop to ratio") },
+      { widget: "multiple", label: "取整到", snap: true, step: 8, when: (values) => values.size !== "off" },
+      { group: "more", label: "More" },
+      { widget: "method", label: "Method", kind: "select", group: "more" },
+      { widget: "enlarge", label: "Enlarge", group: "more" },
     ],
   },
   AUSBOSS_NODES_LoadImagePad: {

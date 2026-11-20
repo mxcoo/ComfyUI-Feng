@@ -56,7 +56,8 @@ export const INPUT_LABELS = {
 "AUSBOSS_NODES_EditLockRestore": {
 "image": "图像",
 "edit_lock": "编辑锁",
-"feather": "羽化"
+"feather": "羽化",
+"remove_tint": "去掉粉色调"
 },
 "AUSBOSS_NODES_FlashVSRUpscale": {
 "frames": "帧数",
@@ -224,6 +225,20 @@ export const INPUT_LABELS = {
 },
 "AUSBOSS_NODES_Float": {
 "value": "数值"
+},
+"AUSBOSS_NODES_LoadImage": {
+"image": "图像",
+"size": "尺寸",
+"megapixels": "百万像素",
+"longest_side": "最长边",
+"scale": "缩放",
+"width": "宽度",
+"height": "高度",
+"multiple": "倍数",
+"method": "方法",
+"enlarge": "允许放大",
+"crop_from": "裁剪位置",
+"ratio": "宽高比"
 },
 "AUSBOSS_NODES_LoadImagePad": {
 "image": "图像",

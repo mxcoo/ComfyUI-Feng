@@ -13,6 +13,8 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
+from ._route_errors import error_detail
+
 try:
     import folder_paths
 except ImportError:  # pragma: no cover - only outside ComfyUI
@@ -136,27 +138,24 @@ _remap_noted: set[str] = set()
 def resolve_lora_path(name: str) -> Path:
     if folder_paths is None:
         raise ValueError("folder_paths 在 ComfyUI 之外不可用。")
-    full = folder_paths.get_full_path("loras", name)
-    if not full:
+    # Only a name on ComfyUI's own LoRA list reaches the disk. A route's
+    # name or a widget value is never joined to a folder as given: it is
+    # matched against the list first, and anything else is refused here.
+    candidate, status = match_lora_name(str(name), list_loras())
+    if status == "remapped":
         # The saved path is stale; a moved file should just keep working.
-        candidate, status = match_lora_name(str(name), list_loras())
-        if status == "remapped":
-            if name not in _remap_noted:
-                _remap_noted.add(name)
-                print(
-                    f"[AusBoss] LoRA Loader: '{name}' is not at its saved "
-                    f"path; using '{candidate}'."
-                )
-            full = folder_paths.get_full_path("loras", candidate)
-        elif status == "ambiguous":
-            raise ValueError(
-                f"LoRA 名称在 models/loras 里匹配到多个文件：{name}"
-            )
+        if name not in _remap_noted:
+            _remap_noted.add(name)
+            print(f"[AusBoss] LoRA Loader：'{name}' 不在保存时的路径上，改用 '{candidate}'。")
+    elif status == "ambiguous":
+        raise ValueError(f'LoRA 名称在 models/loras 里匹配到多个文件：{name}')
+    elif status != "exact":
+        raise ValueError(f'models/loras 里找不到 LoRA 文件：{name}')
+    full = folder_paths.get_full_path("loras", candidate)
     if not full:
-        raise ValueError(f"models/loras 里找不到 LoRA 文件：{name}")
-    # Containment is checked on the path as written, with ".." folded but
-    # links not followed: a LoRA kept on another drive and linked into
-    # models/loras is the user's own choice, and ComfyUI loads it too.
+        raise ValueError(f'models/loras 里找不到 LoRA 文件：{name}')
+    # The listed file must also sit below one of the loras folders, read
+    # from the path as ComfyUI built it, with ".." folded.
     path = Path(os.path.abspath(full))
     roots = [Path(os.path.abspath(root)) for root in folder_paths.get_folder_paths("loras")]
     if not any(root in path.parents for root in roots):
@@ -237,12 +236,7 @@ def _warn_no_effect(row_name: str, declared_family: str) -> None:
         return
     _no_effect_warned.add(row_name)
     trained_for = f" It declares base model '{declared_family}'." if declared_family else ""
-    print(
-        f"[AusBoss] LoRA Loader: '{row_name}' matched nothing in the connected "
-        f"model, so it had no effect on this run.{trained_for} It is almost "
-        "certainly built for a different base model - check the LoRA's base "
-        "model against the checkpoint feeding this node."
-    )
+    print(f"[AusBoss] LoRA Loader：'{row_name}' 在接上的模型里一个都没匹配到，这趟运行它没起作用。{trained_for} 它几乎肯定是给别的基础模型做的——把 LoRA 的基础模型和喂给这个节点的 checkpoint 对一下。")
 
 
 _missing_warned: set[str] = set()
@@ -258,10 +252,7 @@ def _warn_missing(row_name: str, reason: str) -> None:
     if row_name in _missing_warned:
         return
     _missing_warned.add(row_name)
-    print(
-        f"[AusBoss] LoRA Loader: skipping '{row_name}' - {reason} The rest "
-        "of the stack still applies; fix or remove the row to clear this."
-    )
+    print(f"[AusBoss] LoRA Loader：跳过 '{row_name}'——{reason} 其余堆叠照旧生效；改好或删掉这一行就不会再提示。")
 
 
 MISSING_MODES = ("skip", "error")
@@ -372,13 +363,7 @@ def apply_lora_stack(
                 # Strict is the default: rendering without a LoRA the graph
                 # asked for is worse than not rendering, above all for scripted
                 # and agent-driven runs that would happily judge the result.
-                raise ValueError(
-                    f"LoRA Loader: '{row['name']}' - {exc} Stop on missing LoRA is on "
-                    "(the default), so the run stopped instead of rendering without it. "
-                    "Fix or remove the row, or turn 'Stop on missing LoRA' off in the "
-                    "node's settings menu (the gear icon on the node) to warn and skip "
-                    "instead; in API graphs that is on_missing: skip."
-                )
+                raise ValueError(f"LoRA Loader：'{row['name']}'——{exc}「缺 LoRA 就停」默认是开着的，所以这次直接停了，没有缺着它硬渲。改好或删掉这一行，或者在节点的设置菜单（节点上的齿轮图标）里关掉「缺 LoRA 就停」，改成警告后跳过；API 工作流里对应 on_missing: skip。")
             _warn_missing(row["name"], str(exc))
             if missing is not None:
                 missing.append(row)
@@ -388,8 +373,8 @@ def apply_lora_stack(
         except MemoryError:
             raise
         except Exception as exc:
-            # ComfyUI's own message here is PyTorch's and never names the file.
-            detail = f"{type(exc).__name__}: {' '.join(str(exc).split())}"
+            # ComfyUI can add the file's path; error_detail drops words that name one.
+            detail = error_detail(exc)
             raise ValueError(
                 unreadable_lora_message(row["name"], unreadable_lora_reason(path), detail)
             ) from exc

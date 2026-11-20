@@ -160,19 +160,13 @@ class AusBossRealignToSource:
         frames = int(edited.shape[0])
         sources = int(source.shape[0])
         if sources not in (1, frames):
-            raise ValueError(
-                f"Realign to Source: {sources} source frames for {frames} edited "
-                "frames; give one source, or one per edited frame."
-            )
+            raise ValueError(f'Realign to Source：{sources} 帧源画面配 {frames} 帧编辑结果；要么给一帧源画面，要么每帧编辑结果配一帧。')
         height, width = int(source.shape[1]), int(source.shape[2])
         canvases, bbox, frame, canvas_size = None, None, None, None
         if stitcher is not None:
             canvases, bbox = _stitcher_canvas(stitcher)
             if int(canvases.shape[0]) not in (1, frames):
-                raise ValueError(
-                    f"Realign to Source: the stitcher holds {int(canvases.shape[0])} canvases for "
-                    f"{frames} edited frames."
-                )
+                raise ValueError(f'Realign to Source：拼接器里有 {int(canvases.shape[0])} 块画布，编辑结果却是 {frames} 帧。')
             canvas_size = (int(canvases.shape[2]), int(canvases.shape[1]))
             if (width, height) == canvas_size:
                 # The padded canvas itself came in as source: return the

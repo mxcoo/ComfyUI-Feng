@@ -61,19 +61,12 @@ def list_lama_models() -> list[str]:
 
 def resolve_lama_model(model_name: str) -> Path:
     register_lama_model_folder()
-    if folder_paths is None:
-        path = Path(model_name).expanduser().resolve()
-        if path.is_file():
-            return path
-    else:
+    # Only a name from ComfyUI's lama model folder: a typed path is never opened.
+    if folder_paths is not None:
         resolved = folder_paths.get_full_path(MODEL_FOLDER, model_name)
         if resolved:
             return Path(resolved).resolve()
-    raise FileNotFoundError(
-        f"LaMa model '{model_name}' was not found. Place the TorchScript "
-        f"checkpoint at ComfyUI/models/lama/{DEFAULT_MODEL_NAME}, then refresh "
-        "the node's model list."
-    )
+    raise FileNotFoundError(f"找不到 LaMa 模型 '{model_name}'。把 TorchScript 权重放到 ComfyUI/models/lama/{DEFAULT_MODEL_NAME}，然后刷新节点的模型列表。")
 
 
 def _verify_known_model(path: Path) -> None:
@@ -84,12 +77,7 @@ def _verify_known_model(path: Path) -> None:
             digest.update(chunk)
     if digest.hexdigest() not in KNOWN_MODEL_SHA256:
         logging.warning("[AusBoss] LaMa Inpaint 拒绝了 %s，SHA-256 %s", path, digest.hexdigest())
-        raise ValueError(
-            f"LaMa Inpaint did not open '{path.name}' because it is not a known "
-            f"{DEFAULT_MODEL_NAME}. A LaMa model file can run code when it opens, "
-            "so only known copies are used. The node's help page has the "
-            "download link."
-        )
+        raise ValueError(f"LaMa Inpaint 没有打开 '{path.name}'：它不是已知的 {DEFAULT_MODEL_NAME}。LaMa 权重文件在加载时会执行代码，所以只认已知的那几份。下载链接在节点的帮助页里。")
 
 
 @lru_cache(maxsize=2)

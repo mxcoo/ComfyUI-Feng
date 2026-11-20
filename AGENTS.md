@@ -52,9 +52,9 @@ cd H:\~~~aki-v3.2\ComfyUI\custom_nodes\Feng
 | `presets/presets.json` | 出厂数据（**只读**，由 tools 脚本生成） | 不手改 |
 | `presets/user_presets.json` | 界面里新增的分类与预设（**可写**） | 不让出厂数据写进来 |
 | `web/js/*.js` | 前端面板 | 不做业务计算（拼词在后端） |
-| `ausboss/nodes/*.py` | 从上游 AusBoss 搬来的 54 个节点（V1 写法，原样保留） | 不改业务逻辑；要改文案走 `ausboss/zh/nodes.json` |
+| `ausboss/nodes/*.py` | 从上游 AusBoss 搬来的 55 个节点（V1 写法，原样保留） | 不改业务逻辑；要改文案走 `ausboss/zh/nodes.json` |
 | `ausboss/zh/` | 汉化层：数据 + `localize.py`（只改展示字段） | 不改下拉取值（它进 prompt JSON 与路由入参） |
-| `web/ausboss/` | 移植包的前端（含 54 篇帮助文档） | 不进 `web/js/` 的逻辑；import 深度比上游多一层 |
+| `web/ausboss/` | 移植包的前端（含 55 篇帮助文档） | 不进 `web/js/` 的逻辑；import 深度比上游多一层 |
 | `tools/*.py` | 自检与数据导入脚本 | 运行时不参与 |
 
 ## 4. 数据模型（改之前先读懂）

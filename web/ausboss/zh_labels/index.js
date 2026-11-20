@@ -4,7 +4,7 @@
 // 所以后端保持英文名不动，只在界面上把显示标签换成中文。
 // 标签表由 tools/_ausboss_zh_build.py 生成，不要在这里手写文案。
 
-import { app } from "../../../../../scripts/app.js";
+import { app } from "../../../../scripts/app.js";
 import { INPUT_LABELS } from "./labels.mjs";
 
 function localize(node) {

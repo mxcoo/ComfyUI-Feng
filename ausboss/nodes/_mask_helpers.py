@@ -293,10 +293,7 @@ def _guide_frames(
     ):
         raise ValueError("Mask Refine 需要 BHWC 的 RGB IMAGE 批次作为 guide_image。")
     if tuple(guide_image.shape[1:3]) != (height, width):
-        raise ValueError(
-            f"Mask Refine guide_image is {guide_image.shape[2]}x{guide_image.shape[1]} "
-            f"but the mask is {width}x{height}; connect the image the mask belongs to."
-        )
+        raise ValueError(f'Mask Refine 的 guide_image 是 {guide_image.shape[2]}x{guide_image.shape[1]}，遮罩却是 {width}x{height}；接上这个遮罩所属的那张图。')
     if guide_image.shape[0] not in {1, count}:
         raise ValueError(
             "Mask Refine 需要整批遮罩共用一帧引导帧，或每张遮罩各一帧。"
@@ -408,16 +405,9 @@ def refine_mask(
     frame's area; 0 (the default) fills every hole, as before it existed.
     """
     if edge_refine not in EDGE_REFINE_MODES:
-        raise ValueError(
-            f"Mask Refine edge_refine must be one of {EDGE_REFINE_MODES}, "
-            f"not '{edge_refine}'."
-        )
+        raise ValueError(f"Mask Refine 的 edge_refine 只能是 {EDGE_REFINE_MODES} 之一，不能是 '{edge_refine}'。")
     if edge_refine != "off" and guide_image is None:
-        raise ValueError(
-            f"Mask Refine edge_refine '{edge_refine}' needs the guide_image "
-            "input; connect the RGB image the mask belongs to, or set "
-            "edge_refine back to 'off'."
-        )
+        raise ValueError(f"Mask Refine 的 edge_refine '{edge_refine}' 需要 guide_image 输入；接上这个遮罩所属的 RGB 图，或者把 edge_refine 改回 'off'。")
     refined = _as_bhw(mask)
     if (
         isinstance(guide_image, torch.Tensor)

@@ -28,11 +28,7 @@ def select_one_based_frame(frames: torch.Tensor, frame_number: int) -> torch.Ten
         raise ValueError("Select Frame 收到空的 IMAGE 批次。")
     number = int(frame_number)
     if number == 0 or number > frame_count or number < -frame_count:
-        raise ValueError(
-            f"Select Frame requested frame {number}, but this batch contains "
-            f"frames 1 through {frame_count} (or -1 through -{frame_count} "
-            "counting from the end)."
-        )
+        raise ValueError(f'Select Frame 要第 {number} 帧，但这批只有第 1 到第 {frame_count} 帧（从末尾数是 -1 到 -{frame_count}）。')
     index = number - 1 if number > 0 else frame_count + number
     return frames[index : index + 1]
 
@@ -52,10 +48,7 @@ def select_every_nth(frames: torch.Tensor, nth: int, offset: int = 0) -> torch.T
     if skip < 0:
         raise ValueError("Select Every Nth 需要 offset 为 0 或更大。")
     if skip >= count:
-        raise ValueError(
-            f"Select Every Nth skipped {skip} frames, but this batch only "
-            f"contains {count}."
-        )
+        raise ValueError(f'Select Every Nth 跳过了 {skip} 帧，但这批只有 {count} 帧。')
     return frames[skip::step]
 
 
@@ -74,11 +67,7 @@ def split_batch(frames: torch.Tensor, index: int) -> tuple[torch.Tensor, torch.T
             f"Split Batch 至少要 2 帧才能拆，但这个批次只有 {count} 帧。"
         )
     if number < 1 or number >= count:
-        raise ValueError(
-            f"Split Batch cannot split after frame {number}: with {count} "
-            f"frames the split point must be between 1 and {count - 1} so "
-            "neither side is empty."
-        )
+        raise ValueError(f'Split Batch 不能在 {number} 帧之后切：共 {count} 帧时，切点要在 1 到 {count - 1} 之间，两边才不会有一边是空的。')
     return frames[:number], frames[number:]
 
 
@@ -109,27 +98,17 @@ def merge_batches(
     _require_batch(batch_a, "Merge Batches")
     _require_batch(batch_b, "Merge Batches")
     if on_mismatch not in MERGE_MISMATCH_MODES:
-        raise ValueError(
-            f"Merge Batches does not know the mismatch policy {on_mismatch!r}; "
-            f"expected one of {', '.join(MERGE_MISMATCH_MODES)}."
-        )
+        raise ValueError(f"Merge Batches 不认识 mismatch 策略 {on_mismatch!r}；应为 {', '.join(MERGE_MISMATCH_MODES)} 之一。")
     channels_a, channels_b = int(batch_a.shape[3]), int(batch_b.shape[3])
     if channels_a != channels_b:
-        raise ValueError(
-            f"Merge Batches cannot join {channels_a}-channel and "
-            f"{channels_b}-channel images; convert them to match first."
-        )
+        raise ValueError(f'Merge Batches 拼不了 {channels_a} 通道和 {channels_b} 通道的图像；先把两者转成一致。')
     merged_a = batch_a
     merged_b = batch_b.to(device=batch_a.device, dtype=batch_a.dtype)
     size_a = (int(batch_a.shape[1]), int(batch_a.shape[2]))
     size_b = (int(merged_b.shape[1]), int(merged_b.shape[2]))
     if size_a != size_b:
         if on_mismatch == "error":
-            raise ValueError(
-                f"Merge Batches received different sizes: a is "
-                f"{size_a[1]}x{size_a[0]} and b is {size_b[1]}x{size_b[0]}. "
-                "Pick a resize policy to join them."
-            )
+            raise ValueError(f'Merge Batches 收到的尺寸不同：a 是 {size_a[1]}x{size_a[0]}，b 是 {size_b[1]}x{size_b[0]}。选一个缩放策略再拼。')
         if on_mismatch == "resize to a":
             merged_b = _resize_bhwc(merged_b, *size_a)
         else:

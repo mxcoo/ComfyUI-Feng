@@ -416,10 +416,7 @@ def transform_tensor_batch(
 ) -> tuple[torch.Tensor, torch.Tensor, TransformGeometry]:
     if not isinstance(image, torch.Tensor) or image.ndim != 4 or image.shape[-1] not in (3, 4):
         received = tuple(image.shape) if isinstance(image, torch.Tensor) else type(image).__name__
-        raise ValueError(
-            "Transform: input 'image' expected BHWC with 3 or 4 channels, "
-            f"received {received}."
-        )
+        raise ValueError(f'Transform：image 输入要 BHWC、3 或 4 通道，收到的是 {received}。')
     if source_mask is not None:
         if not isinstance(source_mask, torch.Tensor) or tuple(source_mask.shape) != tuple(image.shape[:3]):
             raise ValueError(
@@ -480,17 +477,25 @@ def transform_tensor_batch_chunked(
     return output, mask, geometry
 
 
-def stable_file_fingerprint(path: str | os.PathLike[str], inputs: dict[str, object]) -> str:
-    normalized_path = str(Path(path).resolve()).casefold()
-    try:
-        stat = os.stat(path)
-        file_state: dict[str, object] = {
-            "path": normalized_path,
-            "mtime_ns": stat.st_mtime_ns,
-            "size": stat.st_size,
-        }
-    except OSError:
-        file_state = {"path": normalized_path, "missing": True}
+def stable_file_fingerprint(path: Path | None, inputs: dict[str, object]) -> str:
+    """A key that changes when the inputs or the file do.
+
+    `path` is what resolve_input_path or resolve_video_path returned, or
+    None when they refused the value. Only such a path is ever looked at on
+    disk: a refused value is a string, and a string is only hashed, so a
+    whole path or a network share typed into a widget is never opened."""
+    if isinstance(path, Path):
+        try:
+            stat = os.stat(path)
+            file_state: dict[str, object] = {
+                "path": str(path).casefold(),
+                "mtime_ns": stat.st_mtime_ns,
+                "size": stat.st_size,
+            }
+        except OSError:
+            file_state = {"path": str(path).casefold(), "missing": True}
+    else:
+        file_state = {"unresolved": True}
     payload = {"file": file_state, "inputs": inputs}
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

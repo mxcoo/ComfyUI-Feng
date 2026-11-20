@@ -91,10 +91,7 @@ def _grid(width: int, height: int, cap_pixels: float, overlap: int, multiple: in
                 best = (score, columns, rows, tile_width, tile_height)
         if best is not None:
             return best[1:]
-    raise ValueError(
-        f"Tiled Upscale would cut this picture into more than {MAX_TILES} tiles. "
-        "Ask for fewer megapixels or a larger tile size."
-    )
+    raise ValueError(f'Tiled Upscale 会把这张图切成超过 {MAX_TILES} 块。把百万像素调小，或者把分块尺寸调大。')
 
 
 def plan_tiles(

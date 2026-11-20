@@ -1,3 +1,5 @@
+import { linkOrigin } from "./clip_rate.mjs";
+
 // The same live-input rule used by the writer timeline: muted/bypassed
 // sources do not reach this node. This inspects the wire, never media bytes.
 export function linkSource(node, name) {
@@ -9,8 +11,58 @@ export function linkSource(node, name) {
   return (source?.mode ?? 0) === 0 ? source ?? null : null;
 }
 
+// Keep in step with Python video_frames (node_h3_prompt_writer.py): H3 makes
+// 5 frames plus steps of 17, at most 15 s at 24 fps, rounding a clip down.
+export const H3_FPS = 24;
+export function h3VideoFrames(frames) {
+  const count = Math.trunc(Number(frames));
+  if (!(count > 0)) return null;
+  return Math.max(1, Math.floor((Math.min(count, 15 * H3_FPS) - 5) / 17)) * 17 + 5;
+}
+
+// What the clip node's face last worked out for its run ({frames,
+// startSeconds, endSeconds}), or null when the clip is not that node or its
+// count is only known at run time.
+export function clipTimingFor(node) {
+  // Through Reroutes and subgraphs, as every linked value is read.
+  const timing = linkOrigin(node, "video")?.node?.__ausbossClipTiming;
+  return timing && timing.frames > 0 ? timing : null;
+}
+
+// The words under "From the clip": what H3 will make of the clip's frames.
+export function clipLengthWords(timing) {
+  if (!timing) return null;
+  const made = h3VideoFrames(timing.frames);
+  const seconds = (frames) => String(Number((frames / H3_FPS).toFixed(2)));
+  if (made < timing.frames) {
+    const up = made + 17;
+    const room = timing.roomFrames ?? Infinity;
+    const stops = timing.startSeconds + made / H3_FPS;
+    return {
+      title: `H3 makes ${made}，片段共 ${timing.frames} frames · ${seconds(made)} s`,
+      note: `停在 ${String(Number(stops.toFixed(2)))} s。要用完，把片段的 Duration 设为 ${seconds(made)} s${up <= Math.min(room, 15 * H3_FPS) ? ` or ${seconds(up)} s` : ""}.`,
+      warn: true,
+    };
+  }
+  if (made === timing.frames) return { title: `H3 用满 ${made} frames · ${seconds(made)} s`, note: "片段长度本就是 H3 支持的。", warn: false };
+  return { title: `H3 makes ${made} frames · ${seconds(made)} s`, note: `那已经是最短长度；片段有 ${timing.frames} 帧。`, warn: true };
+}
+
+// These video jobs keep the clip's own camera (Python MOVES_ARE and
+// SWAP_VIDEO say so; a new voice or a change keeps the clip as it was shot).
+// "keep going" makes new footage, so its camera is still the user's words.
+const CAMERA_FROM_CLIP = ["copy its moves", "swap the person", "new voice", "change something"];
+
+// The Camera list's first choice adds no camera words. With a clip wired for
+// one of those jobs that means the clip's own camera, so it reads that way.
+export function cameraChoiceLabel(value, values, node) {
+  if (value !== "as typed" || !node) return undefined;
+  const job = node.widgets?.find((widget) => widget.name === "video_job")?.value;
+  return CAMERA_FROM_CLIP.includes(job) && linkSource(node, "video") !== null ? "来自视频" : undefined;
+}
+
 // Keep in step with Python KEEPS_ITS_LENGTH. Other jobs use seconds normally.
 export function clipSetsDuration(node, values) {
-  return ["swap the person", "new voice", "change something"].includes(values.video_job)
+  return ["copy its moves", "swap the person", "new voice", "change something"].includes(values.video_job)
     && linkSource(node, "video") !== null;
 }

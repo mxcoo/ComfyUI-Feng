@@ -59,14 +59,15 @@ export function dragRange(rows, index, seconds) {
 export function stripCaption(report) {
   if (report?.warning) return { text: report.warning, warn: true };
   const moments = report?.moments ?? [];
-  if (!moments.length) return { text: "每一行算一个时刻。", warn: false };
-  const count = `${moments.length} 个片段`;
+  if (!moments.length) return { text: "每一行是一个时刻。行与行之间空一行就切一刀。", warn: false };
+  const count = moments.length === 1 ? "1 moment" : `${moments.length} moments`;
   const cuts = moments.filter((moment) => moment.cut).length;
-  if (cuts) return { text: `${count}，${cuts} 处剪接。`, warn: false };
+  // Say how to cut, since nothing on the bar shows it until you hover an edge.
+  if (cuts) return { text: `${count}, ${cuts === 1 ? "1 cut" : `${cuts} cuts`}。在条上点切点可把两段接起来。`, warn: false };
   const each = moments.map((moment) => trimmed(moment.end - moment.start));
-  if (moments.length === 1) return { text: `${count}, ${each[0]} 秒，一镜到底。`, warn: false };
+  if (moments.length === 1) return { text: `${count}, ${each[0]} 秒，一次拍完。下一段加一行，空行表示切开。`, warn: false };
   const even = each.every((length) => length === each[0]);
-  return { text: even ? `${count}, ${each[0]} 秒一段，一镜到底。` : `${count}，一镜到底。`, warn: false };
+  return { text: `${even ? `${count}, ${each[0]} s each` : count}, 一镜到底。点两个时刻之间就在那里切。`, warn: false };
 }
 
 // The seconds the bar under the script marks: every second up to 10 s,

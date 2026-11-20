@@ -1,10 +1,10 @@
 # 10 · 并入 AusBoss 节点包
 
 `Feng` 里带了一套从上游 [ComfyUI-AusBoss](https://github.com/ausboss/ComfyUI-AusBoss)
-搬来的 54 个节点，并做了完整汉化：节点名、分类、描述、输入提示（tooltip）、输出名、
+搬来的 55 个节点，并做了完整汉化：节点名、分类、描述、输入提示（tooltip）、输出名、
 下拉框的**显示文字**、前端面板里的按钮与提示、以及每篇节点帮助文档，全部是中文。
 
-上游版本固定在 `2.24.0`（commit `431941f`），记录在 `ausboss/_version.py`。
+上游版本固定在 `2.26.4`（commit `9e9121a`），记录在 `ausboss/_version.py`。
 
 ## 1. 目录
 
@@ -13,18 +13,18 @@
 | `ausboss/nodes/` | 上游的 93 个 Python 模块（43 个节点文件 + 47 个 helpers + 门禁/缓存工具） |
 | `ausboss/__init__.py` | 把 44 个节点模块并成 `NODE_CLASS_MAPPINGS`，末尾调用汉化层 |
 | `ausboss/zh/` | 汉化层：`localize.py`（改类属性）+ `nodes.json`（中文数据） |
-| `web/ausboss/` | 上游 133 个前端模块与 54 篇帮助文档（`docs/`），已按 Feng 的 URL 深度改写 import |
+| `web/ausboss/` | 上游 143 个前端模块与 55 篇帮助文档（`docs/`），已按 Feng 的 URL 深度改写 import |
 | `web/ausboss/zh_labels/` | 前端贴中文输入标签的小扩展（`labels.mjs` + `index.js`） |
 | `ausboss/locales/zh/` | 上游自带的中文 `nodeDefs.json`，仅作参考，不参与生成 |
 | `ausboss/example_workflows/` | 上游示例工作流 |
 
 ## 2. 怎么并进 V3 插件而不重写节点
 
-Feng 自己是 V3（`io.ComfyNode` + `comfy_entrypoint`），上游 54 个节点全是 V1
+Feng 自己是 V3（`io.ComfyNode` + `comfy_entrypoint`），上游 55 个节点全是 V1
 （`INPUT_TYPES` + `NODE_CLASS_MAPPINGS`）。ComfyUI 的 `nodes.py` 里，同一个包**不能同时**
 声明 `NODE_CLASS_MAPPINGS` 和 `comfy_entrypoint`——V1 分支先命中就 `return`，V3 那套根本不跑。
 
-所以走「注入全局映射」而不是「给 54 个节点手写 schema」：
+所以走「注入全局映射」而不是「给 55 个节点手写 schema」：
 
 1. `ausboss/__init__.py` 按普通 Python 包被 import，产出两套映射；
 2. `Feng/__init__.py` 在模块末尾把这两套映射**写进 ComfyUI 的全局 `NODE_CLASS_MAPPINGS`**
@@ -75,7 +75,7 @@ cd H:\~~~aki-v3.2\ComfyUI\custom_nodes\Feng
 # 1) 抽出上游的英文原文（桩环境加载，不需要 torch/ComfyUI）
 python tools\ausboss_zh_extract.py            # → tools\_ausboss_extracted.json
 
-# 2) 按 54 个节点切任务，翻译稿放 tools\_zh_out\batch-01..08.json
+# 2) 按节点切任务，翻译稿放 tools\_zh_out\batch-*.json
 python tools\ausboss_zh_batches.py
 
 # 3) 合并 → ausboss\zh\nodes.json + web\ausboss\zh_labels\labels.mjs（带一致性校验）
@@ -117,12 +117,12 @@ python tools\_ausboss_py_zh.py apply-f
 | 检查 | 做什么 |
 | --- | --- |
 | 编译 | `ausboss/**/*.py` 全部 `py_compile` |
-| 加载 | 用 `tools/_ausboss_stub.py` 顶替 torch/numpy/PIL，走真实 import 路径取 54 个节点 |
+| 加载 | 用 `tools/_ausboss_stub.py` 顶替 torch/numpy/PIL，走真实 import 路径取 55 个节点 |
 | 中文数据 | 每个节点的名称/描述/输出/标签/提示都含中文（`IMAGE`、`VAE` 这类类型名豁免） |
 | 覆盖率 | 对照 `tools/_ausboss_extracted.json` 的英文原文，确认输入标签、下拉选项、输出数量都齐 |
 | 汉化层行为 | 注入假节点，断言选项**仍是英文**、描述/输出名/分类变成中文、执行入口没被改坏 |
 | 前端 | 括号配平、相对 import 按浏览器 URL 深度解析、`labels.mjs` 的键都在 `nodes.json` 里 |
-| 帮助文档 | 54 篇 md 都存在且含中文 |
+| 帮助文档 | 55 篇 md 都存在且含中文 |
 | 版本 | `_version.py`、`shared/index.mjs`、`nodes.json` 三处版本号一致 |
 | f-string 插值 | 源码里除 `_image_save_helpers.py` 那条正则外不得出现 `{{`（防译文把 `{x}` 写成 `{{x}}`） |
 

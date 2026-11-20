@@ -83,10 +83,7 @@ def split_by_frame(masks: torch.Tensor, counts: list[int]) -> list[torch.Tensor]
         raise ValueError("Mask by Name 需要检测器给出的遮罩是单个 N x H x W 堆叠。")
     total = sum(int(count) for count in counts)
     if total != int(masks.shape[0]):
-        raise ValueError(
-            f"Mask by Name got {int(masks.shape[0])} masks for {total} matches; "
-            "the detector's answer does not add up."
-        )
+        raise ValueError(f'Mask by Name 拿到 {int(masks.shape[0])} 个遮罩，却有 {total} 处匹配；检测器的结果对不上。')
     frames = []
     start = 0
     for count in counts:

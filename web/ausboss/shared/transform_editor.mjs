@@ -1,5 +1,4 @@
-import { api } from "../../../../scripts/api.js";
-import { app } from "../../../../scripts/app.js";
+import { linkedNodeInfo, timingUnits as clipUnits } from "./timing_links.mjs";
 import { PANEL_LABELS } from "./panel_controls.mjs";
 import { hideInputsInDef, hideWidget } from "./widget_visibility.mjs";
 import { mountTransformTrim } from "./transform_trim.mjs";
@@ -12,7 +11,7 @@ import { normalizeFillColor } from "./fill_color.mjs";
 import { makeSlideSwitch } from "./slide_switch.mjs";
 import { makeScrubInput } from "./scrub_input.mjs";
 import { confirmDiscard } from "./discard_prompt.mjs";
-import { featherGeneratedMask, generatedAreaMask, overlayPlan, seeThroughMap, stitchBlendFromMask } from "./stitch_preview.mjs";
+import { PIXEL_PROBE, featherGeneratedMask, generatedAreaMask, overlayPlan, pixelReadTrusted, seeThroughMap, stitchBlendFromMask } from "./stitch_preview.mjs";
 import { suppressCoreVideoPreview } from "./core_preview.mjs";
 import { gearIconSvg, loadSettings, openSettingsMenu } from "./settings_menu.mjs";
 import { createSettle } from "./settle.mjs";
@@ -81,6 +80,7 @@ import {
 } from "./transform_geometry.mjs";
 import { clampFrame, clipInfo, frameTime } from "./timeline_math.mjs";
 import { liftSocket } from "./widget_card.mjs";
+import { COPY_EDITS_SETTING, copyPicture, transformPicture } from "./transform_picture.mjs";
 
 const HIDDEN_WIDGETS = [
   "image", "upload",
@@ -103,11 +103,10 @@ const trimInputDriven = (node, name) => node.inputs?.some(
 
 const RESIZE_METHODS = ["lanczos", "area", "bicubic", "bilinear", "nearest-exact"];
 // The widest the control rows get on a big node; the picture takes the rest.
-const CONTROL_MAX_WIDTH = 460;
 const TRANSFORM_DEFAULTS = resetTransformValues(false);
 const CORE_IMAGE_PREVIEW_WIDGET = "$$canvas-image-preview";
 
-// The gear on the image node's source card. Display choices only, kept for
+// The gear on the image node's source card. Browser preferences, kept for
 // every image node on this browser (settings_menu.mjs stores them).
 const SETTINGS_SCOPE = "image_crop_rotate_pad";
 const SETTINGS_SCHEMA = [
@@ -115,6 +114,7 @@ const SETTINGS_SCHEMA = [
     key: "show_mask", label: "在画面上显示遮罩", type: "toggle", default: true,
     hint: "青绿色覆盖模型会绘制的部分：MaskEditor 里画的遮罩，或 PNG 的透明区域。",
   },
+  COPY_EDITS_SETTING,
 ];
 let transformSettings = null;
 function settings() {
@@ -150,7 +150,7 @@ function installStyles() {
   style.id = "ausboss-transform-styles";
   style.textContent = `
     .ausboss-transform-panel{display:flex;flex-direction:column;gap:8px;padding:8px;color:#ddd;font:12px system-ui;box-sizing:border-box;width:100%;height:100%;overflow:hidden}
-    .ausboss-transform-panel>:not(.ausboss-transform-preview){width:100%;max-width:${CONTROL_MAX_WIDTH}px;align-self:center;box-sizing:border-box}
+    .ausboss-transform-panel>:not(.ausboss-transform-preview){width:100%;align-self:stretch;box-sizing:border-box}
     .ausboss-transform-preview{width:100%;flex:1 1 180px;min-height:0;border:1px solid #50555b;border-radius:8px;background:#111;display:block;touch-action:none}
     .ausboss-transform-source{display:flex;flex-direction:column;gap:7px;flex:0 0 auto;padding:8px;border:1px solid rgba(0,184,174,.28);border-radius:8px;background:rgba(0,0,0,.24)}
     .ausboss-transform-source-image{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center}
@@ -189,13 +189,14 @@ function installStyles() {
     .ausboss-transform-group-meta{min-width:0;overflow:hidden;text-overflow:ellipsis}
     .ausboss-transform-group-body{display:flex;flex-direction:column;gap:7px;padding:8px;box-sizing:border-box}
     .ausboss-transform-group-body[hidden]{display:none}
-    .ausboss-transform-readout{flex:0 0 auto;margin-top:-3px;color:#c9d0d6;font:11px/14px system-ui;font-variant-numeric:tabular-nums;text-align:center;overflow:hidden;cursor:default;user-select:none}
+    .ausboss-transform-readout{flex:0 0 auto;margin:-5px 0 -3px;color:#c9d0d6;font:11px/14px system-ui;font-variant-numeric:tabular-nums;text-align:center;overflow:hidden;cursor:default;user-select:none}
     .ausboss-transform-readout:empty{display:none}
     .ausboss-transform-readout span{color:#8ca8a5}.ausboss-transform-readout b{color:#fff;font-weight:600}
     .ausboss-transform-readout>div,.ausboss-transform-readout i{display:flex;align-items:center;justify-content:center;gap:3px;height:14px;white-space:nowrap}
     .ausboss-transform-readout .ausboss-transform-ellipsis{min-width:0;overflow:hidden;text-overflow:ellipsis;color:inherit}
     .ausboss-transform-readout b,.ausboss-transform-readout button{flex:none}
     .ausboss-transform-readout i{color:#ffc46b;font-style:normal}
+    .ausboss-transform-readout i:empty{display:none}
     .ausboss-transform-readout em{color:#8ca8a5;font-style:normal}
     .ausboss-transform-readout em.note.ausboss-transform-ellipsis{color:#ffc46b}
     .ausboss-transform-readout button{margin:0 0 0 6px;height:14px;padding:0 6px;border:1px solid #6b5a33;border-radius:3px;background:#2a2417;color:#ffd79a;font:600 9.5px/12px system-ui;cursor:pointer;vertical-align:top}
@@ -2321,6 +2322,11 @@ function buildTrim(state) {
     onTogglePlayback: () => timelineCommand(state, "play"),
     onSeek: (frame, settled) => scrubTo(state, frame, settled),
     onCommit: notifyAusbossChange,
+    linkInfo: (name) => linkedNodeInfo(state.node, name),
+    // H3 Prompt Writer reads this to say what H3 makes of the clip.
+    publish: (timing) => { state.node.__ausbossClipTiming = timing; },
+    units: () => clipUnits(),
+    setUnits: (next) => { clipUnits(next); for (const view of state.trimViews) view.sync(); },
   });
   state.trimViews.add(control);
   return control.root;
@@ -2341,6 +2347,7 @@ function setPlayhead(state, index) {
 // also snaps the widgets to the decoded frame.
 function scrubTo(state, index, settled) {
   if (state.playing) stopPlayback(state, false);
+  state.pausedAt = null;
   const frame = setPlayhead(state, index);
   syncTimelineRange(state);
   if (settled) { void seekFrame(state); return; }
@@ -2401,7 +2408,11 @@ function startPlayback(state) {
   const trim = [...state.trimViews][0];
   const { first, last } = trim.window();
   const head = clampFrame(value(state.node, "frame_index", 0), info);
-  let next = head < first || head >= last ? first : head + 1;
+  // Play shows the clip from its start, so what plays is what the run
+  // keeps; only a resume right after a pause inside the clip carries on.
+  const resume = state.pausedAt != null && state.pausedAt === head && head >= first && head < last;
+  let next = resume ? head + 1 : first;
+  state.pausedAt = null;
   state.playing = true;
   syncTimelineRange(state);
   const session = ++state.playbackSession;
@@ -2422,6 +2433,7 @@ function startPlayback(state) {
 function stopPlayback(state, settle = true) {
   const wasPlaying = Boolean(state.playing);
   state.playing = false;
+  if (wasPlaying) state.pausedAt = clampFrame(value(state.node, "frame_index", 0), clipInfo(state.metadata));
   state.playbackSession = (state.playbackSession || 0) + 1; // orphan in-flight ticks
   if (state.playbackTimer) clearTimeout(state.playbackTimer);
   state.playbackTimer = null;
@@ -2850,6 +2862,9 @@ function maskLayer(state) {
   if (state.seeThrough?.image === state.image) return state.seeThrough.layer;
   let layer = null;
   try {
+    // A browser that blanks pixel reads would make the whole picture look
+    // see-through: draw it as it is instead.
+    if (!canReadPixels()) throw new Error("浏览器挡住了像素读取");
     const k = Math.min(1, MASK_LAYER_SIDE / Math.max(state.sourceWidth, state.sourceHeight));
     const width = Math.max(1, Math.round(state.sourceWidth * k));
     const height = Math.max(1, Math.round(state.sourceHeight * k));
@@ -2875,6 +2890,22 @@ function maskLayer(state) {
   }
   state.seeThrough = { image: state.image, layer };
   return layer;
+}
+
+// Whether this browser hands back the pixels a canvas holds (pixelReadTrusted).
+// Asked once per page.
+let pixelReadsWork = null;
+function canReadPixels() {
+  if (pixelReadsWork !== null) return pixelReadsWork;
+  try {
+    const probe = document.createElement("canvas"); probe.width = PIXEL_PROBE.length; probe.height = 1;
+    const context = probe.getContext("2d");
+    PIXEL_PROBE.forEach(([r, g, b], x) => { context.fillStyle = `rgb(${r},${g},${b})`; context.fillRect(x, 0, 1, 1); });
+    pixelReadsWork = pixelReadTrusted(context.getImageData(0, 0, PIXEL_PROBE.length, 1).data);
+  } catch {
+    pixelReadsWork = false;
+  }
+  return pixelReadsWork;
 }
 
 // White where the tint is, for Show blend's raster.
@@ -3095,6 +3126,68 @@ function drawRotateGlyph(context, x, y, radius, color) {
 // node itself can still drag, and pointercancel plus mouseleave both end a
 // gesture in case the capture was refused.
 function attachStageHandlers(state, canvas, signal) {
+  if (state.kind === "image") {
+    canvas.addEventListener("contextmenu", (event) => {
+      event.preventDefault(); event.stopPropagation();
+      if (!state.image) return;
+      const picture = async () => {
+        let source = state.image;
+        const sourceWidth = state.sourceWidth, sourceHeight = state.sourceHeight;
+        const current = values(state.node), resize = resizeRequest(state.node);
+        const includeEdits = settings().copy_edits;
+        if (includeEdits && maskLayer(state)) {
+          if (value(state.node, "painted_area", "fill") === "keep picture") {
+            // The browser loses colours under fully transparent pixels. Core's
+            // RGB view restores the stored picture under MaskEditor strokes.
+            source = new Image();
+            source.src = api.apiURL(`/view?${mediaViewQuery(value(state.node, "image", ""))}&channel=rgb`);
+            await source.decode();
+          } else {
+            // The stage's mask layer is capped at 2048px. Copy from the source
+            // at full size, using the same rule for which pixels stay picture.
+            const full = document.createElement("canvas");
+            full.width = sourceWidth; full.height = sourceHeight;
+            const context = full.getContext("2d");
+            context.drawImage(source, 0, 0);
+            const pixels = context.getImageData(0, 0, full.width, full.height);
+            const map = seeThroughMap(pixels.data);
+            if (map) for (let i = 0; i < map.length; i++) pixels.data[i * 4 + 3] = map[i] ? 0 : 255;
+            context.putImageData(pixels, 0, 0);
+            source = full;
+          }
+        }
+        return transformPicture({
+          sourceWidth, sourceHeight, values: current, resize, includeEdits,
+          fill: normalizeColor(current.fill_color),
+          drawSource: (context) => context.drawImage(source, -sourceWidth / 2, -sourceHeight / 2, sourceWidth, sourceHeight),
+        });
+      };
+      const report = (error) => showToast({ severity: "error", summary: "复制图像", detail: error?.message ?? String(error) });
+      new globalThis.LiteGraph.ContextMenu([
+        { content: "复制图片", callback: () => {
+          try {
+            Promise.resolve(copyPicture(picture)).then(
+              () => showToast({ summary: "复制图片", severity: "success", detail: "图片已在剪贴板里。" }), report,
+            );
+          } catch (error) { report(error); }
+        } },
+        { content: "打开图像", callback: async () => {
+          try {
+            // A real image retains the browser's native Copy image on plain
+            // HTTP too. A data URL stays usable for as long as the tab is open.
+            const tab = window.open("about:blank", "_blank");
+            if (!tab) throw new Error("允许弹窗才能打开这张图。");
+            tab.opener = null;
+            const image = tab.document.createElement("img");
+            image.src = (await picture()).toDataURL("image/png");
+            image.style.maxWidth = "100%";
+            tab.document.title = "裁剪图片 —— 右键复制";
+            tab.document.body.append(image);
+          } catch (error) { report(error); }
+        } },
+      ], { event });
+    }, { signal });
+  }
   canvas.addEventListener("pointerdown", (event) => pointerDown(state, canvas, event), { signal });
   canvas.addEventListener("pointermove", (event) => pointerMove(state, canvas, event), { signal });
   canvas.addEventListener("pointerup", (event) => pointerUp(state, canvas, event), { signal });

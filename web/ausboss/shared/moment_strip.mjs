@@ -2,9 +2,7 @@
 // bar as long as the clip, with the cuts as marks. The server reads the script with the same code a run uses,
 // so the bar shows what will happen. It also colours the script box, so the
 // words the node reads as instructions (@1, 3s:, a cut) stand out.
-import { clipSetsDuration, linkSource } from "./h3_duration.mjs";
-import { api } from "../../../../scripts/api.js";
-import { app } from "../../../../scripts/app.js";
+import { clipLengthWords, clipSetsDuration, clipTimingFor, linkSource } from "./h3_duration.mjs";
 import { BRAND, chainCallback } from "./index.mjs";
 import { dragRange, moveMoment, retime, rulerSeconds, stripCaption, stripRows, toggleCut, wiredJobs } from "./moment_strip_math.mjs";
 import { attachScriptAssist } from "./script_assist.mjs";
@@ -38,7 +36,8 @@ function ensureCss() {
 .ausboss-strip-handle::before{content:"";position:absolute;left:5px;top:5px;bottom:5px;width:2px;border-radius:1px;background:rgba(207,232,229,.35)}
 .ausboss-strip-handle:hover::before,.ausboss-strip-handle.dragging::before{background:#cfe8e5}
 .ausboss-strip-handle span{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);padding:1px 4px;border-radius:3px;background:#cfe8e5;color:#0b0f10;font-size:9px;white-space:nowrap;display:none}
-.ausboss-strip-handle.dragging span{display:block}
+.ausboss-strip-handle:hover span,.ausboss-strip-handle.dragging span{display:block}
+.ausboss-strip-handle.cuts::before{background:${BRAND}}
 .ausboss-strip-block.movable{cursor:grab;touch-action:none}
 .ausboss-strip-block.moving{z-index:3;cursor:grabbing;opacity:.85;box-shadow:0 4px 14px rgba(0,0,0,.5)}
 .ausboss-strip-drop{position:absolute;top:-3px;bottom:-3px;z-index:4;width:3px;margin-left:-2px;border-radius:2px;background:#f5b53d;pointer-events:none}
@@ -108,7 +107,12 @@ export function momentStrip(node) {
     const label = document.createElement("span");
     handle.append(label);
     handle.style.left = `${rows[index].from}%`;
-    handle.title = range ? "拖动设置这一刻从哪开始。点一下加上或去掉一个切点。" : "点一下加上或去掉一个切点。";
+    const isCut = Boolean(rows[index].cut);
+    handle.classList.toggle("cuts", isCut);
+    // Shown on hover: what a click does here. Dragging swaps it for the time.
+    const hint = isCut ? "\u2702 join" : "\u2702 cut";
+    label.textContent = hint;
+    handle.title = `${isCut ? "点这里把这两个镜头接起来。" : "点一下在这里切一个新镜头。"}${range ? " 拖动可设定这一时刻的起点。" : ""}`;
     track.append(handle);
     handle.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
@@ -134,6 +138,7 @@ export function momentStrip(node) {
         handle.removeEventListener("pointerup", stop);
         handle.removeEventListener("pointercancel", stop);
         handle.classList.remove("dragging");
+        label.textContent = hint;
         if (!moved) commitScript((text) => toggleCut(text, rows[index].line));
         else if (second !== null && second !== rows[index].start) commitScript((text) => retime(text, rows[index].line, second));
       };
@@ -290,12 +295,15 @@ export function momentStrip(node) {
       asked += 1;
       ruler.textContent = "";
       track.textContent = "";
-      const message = el("ausboss-strip-words", "长度来自上游片段");
+      // Say what H3 will make of the clip's frames, when the clip node knows
+      // its count; it rounds down to 5 + 17n, so a 48-frame clip gives 39.
+      const words = clipLengthWords(clipTimingFor(node));
+      const message = el("ausboss-strip-words", words?.title ?? "长度来自片段");
       message.style.cssText = "display:flex;align-items:center;height:100%";
       track.append(message);
-      note.textContent = "片段的长度在上游设置。这里不能改时间。";
+      note.textContent = words?.note ?? "片段长度在片段节点上设。H3 只做 5 + 17n 帧（22、39、56……），会把片段向下取整。";
       note.title = note.textContent;
-      note.classList.remove("warn");
+      note.classList.toggle("warn", Boolean(words?.warn));
       return;
     }
     if (wired(node, "script")) {

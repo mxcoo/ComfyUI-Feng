@@ -360,10 +360,7 @@ class AusBossTiledUpscaleStitch:
             redrawn = list(redrawn[0].split(per_tile, dim=0))
         if len(redrawn) != expected:
             has = f"{len(stitchers)} stitchers have" if len(stitchers) > 1 else "the stitcher has"
-            raise ValueError(
-                f"Tiled Upscale Stitch got {len(redrawn)} tiles and {has} {expected}. "
-                "Send every tile from Tiled Upscale 🆎 through the same nodes, in order."
-            )
+            raise ValueError(f'Tiled Upscale Stitch 收到 {len(redrawn)} 块和 {has} {expected}。把 Tiled Upscale 🆎 出来的每一块都按顺序过同一批节点。')
 
         pictures = []
         start = 0

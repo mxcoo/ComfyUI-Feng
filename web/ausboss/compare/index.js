@@ -14,6 +14,10 @@ import {
   compareBadges,
   compareClip,
   compareResultSide,
+  REST_PROPERTY,
+  savedRestSide,
+  SWITCH_CONTROL_INPUTS,
+  SWITCH_NODE_TYPES,
   compareSizeLabel,
   compareSwitchValue,
   findComparePairs,
@@ -182,9 +186,15 @@ function linkView(graph) {
     const link = lookupLink(graph, linkId);
     return link ? { id: String(link.origin_id), slot: link.origin_slot } : null;
   };
+  const inputs = (id) => graph?.getNodeById?.(id)?.inputs ?? [];
   return {
     origin,
-    feeds: (id) => (graph?.getNodeById?.(id)?.inputs ?? []).map((input) => origin(input?.link)?.id),
+    feeds: (id) => inputs(id).map((input) => origin(input?.link)?.id),
+    branches(id) {
+      const node = graph?.getNodeById?.(id);
+      if (!SWITCH_NODE_TYPES.has(node?.comfyClass ?? node?.type)) return null;
+      return inputs(id).filter((input) => !SWITCH_CONTROL_INPUTS.has(input?.name)).map((input) => origin(input?.link)?.id);
+    },
     inside(id) {
       const subgraph = graph?.getNodeById?.(id)?.subgraph;
       if (!subgraph) return null;
@@ -195,16 +205,38 @@ function linkView(graph) {
 }
 
 // Which input holds the result, read from the graph the panel sits in.
-function resultSide(node) {
+function guessResultSide(node) {
   const view = linkView(node.graph);
   const source = (name) => view.origin(node.inputs?.find((input) => input?.name === name)?.link);
   return compareResultSide(source("image_a"), source("image_b"), view);
 }
 
-// Slide mode rests on the result while the pointer is away.
+// The picture the panel rests on, saved with the node. A node from a
+// workflow saved before the choice existed has none: its side is worked out
+// from the links, as earlier versions did, and held in memory only. Writing
+// it into the node would mark every older workflow as changed when it opens;
+// it is written when someone picks a side in the menu.
+function restSide(node) {
+  const saved = savedRestSide(node.properties?.[REST_PROPERTY]);
+  if (saved) return saved;
+  node.__ausbossRestGuess ??= guessResultSide(node);
+  return node.__ausbossRestGuess;
+}
+
+// Slide mode rests on its saved picture while the pointer is away.
 function showResult(state) {
-  state.fraction = resultSide(state.node) === "B" ? 0 : 1;
+  state.fraction = restSide(state.node) === "B" ? 0 : 1;
   applyClip(state);
+}
+
+// The right-click choice: rest on the other picture from now on.
+function setRestSide(node, side) {
+  node.properties ??= {};
+  node.properties[REST_PROPERTY] = side;
+  const state = node.__ausbossCompare;
+  if (state && getMode(node) === "slide" && !state.stage.matches(":hover")) showResult(state);
+  node.setDirtyCanvas?.(true, true);
+  notifyAusbossChange();
 }
 
 // A click on the mode switch. The mode saves with the workflow; a flip
@@ -433,10 +465,11 @@ app.registerExtension({
       defaultValue: true,
       category: ["🆎 AusBoss", "图片对比", "停在结果上"],
       tooltip:
-        "指针移开时，图片对比 A/B 显示结果： "
-        + "每次运行后都会显示，指针每次离开"
-        + "图片时也重新显示。关掉：停在指针离开时最靠近的那张"
-        + "图片上，新的运行也不会改变它。",
+        "指针移开后，Image Compare A/B 的图会取"
+        + "停在：新节点上是 B，或节点里 "
+        + "右键菜单里挑的那张。每次运行后都会做一次，指针每次离开画面时也再来一次 "
+        + "指针离开画面。关：停在画面上 "
+        + "离指针离开处最近的那张，新的一次运行也不会改变它。",
       onChange(value) {
         restOnResult = value !== false;
       },
@@ -454,6 +487,9 @@ app.registerExtension({
   beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData?.name !== NODE_NAME) return;
     chainCallback(nodeType.prototype, "onNodeCreated", function () {
+      // A new node rests on B. A loaded one gets its saved side back in onConfigure.
+      this.properties ??= {};
+      this.properties[REST_PROPERTY] = "B";
       buildPanel(this);
       // Only for a genuinely new node: onConfigure restores a saved size after
       // this runs, so a workflow's own dimensions still win.
@@ -462,8 +498,12 @@ app.registerExtension({
         Math.max(DEFAULT_NODE_SIZE[1], this.size?.[1] ?? 0),
       ]);
     });
-    chainCallback(nodeType.prototype, "onConfigure", function () {
+    chainCallback(nodeType.prototype, "onConfigure", function (info) {
       const state = this.__ausbossCompare;
+      // Saved before the choice existed: drop the new node's B, so the side
+      // is worked out from the links.
+      if (!savedRestSide(info?.properties?.[REST_PROPERTY])) delete this.properties?.[REST_PROPERTY];
+      this.__ausbossRestGuess = undefined;
       queueMicrotask(() => {
         if (!state || this.__ausbossCompare !== state || state.abort.signal.aborted) return;
         state.showingB = this.properties?.ausboss_compare_side === "B";
@@ -482,8 +522,19 @@ app.registerExtension({
       if (!pairs.length) setEmpty(state, "执行结束，但没有对比预览");
       app.canvas?.setDirty?.(true, true);
     });
+    // Which picture the panel rests on, kept with the workflow.
+    chainCallback(nodeType.prototype, "getExtraMenuOptions", function (_canvas, options) {
+      if (!Array.isArray(options)) return;
+      const side = restSide(this);
+      const other = side === "A" ? "B" : "A";
+      options.unshift(
+        { content: `Show ${other} 指针离开时显示（当前 ${side})`, callback: () => setRestSide(this, other) },
+        null,
+      );
+    });
     // A link on the filename input decides whether the name is typed here.
     chainCallback(nodeType.prototype, "onConnectionsChange", function () {
+      this.__ausbossRestGuess = undefined; // an older node's side follows its links
       this.__ausbossCompare?.eraser?.refresh();
     });
     chainCallback(nodeType.prototype, "onRemoved", function () {

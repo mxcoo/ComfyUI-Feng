@@ -4,8 +4,8 @@
 （升级 SOP + 回归清单 + 排错）。讲原理的正文在 [10-ausboss-port.md](10-ausboss-port.md)，
 这里只记事实与操作。
 
-> 一句话现状：本包移植的是上游 `ComfyUI-AusBoss`，当前对齐 **v2.24.0（commit `431941f`）**，
-> 54 个节点、界面与文档全中文、后端报错/日志全中文；下拉框**取值**保持英文（理由见第 6 条）。
+> 一句话现状：本包移植的是上游 `ComfyUI-AusBoss`，当前对齐 **v2.26.4（commit `9e9121a`）**，
+> 55 个节点、界面与文档全中文、后端报错/日志全中文；下拉框**取值**保持英文（理由见第 6 条）。
 
 ---
 
@@ -20,6 +20,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 2.23.0 | v2.23.0 之后的 main | `6008d31` | 2026-11-11 | 首次整体搬运；含 Edit Lock / Edit Lock Restore / Text Lines / Prompt Variations / FlashVSR Upscale | `1ee8d4a` |
 | 2.24.0 | v2.24.0 | `431941f` | 2026-11-12 | 仅版本元数据（`pyproject.toml` 版本/描述/keywords、`AUSBOSS_JS_VERSION`、CHANGELOG 标题、readme svg）；**代码零变化** | 见本文件所在提交 |
+| 2.26.4 | v2.26.4 | `9e9121a` | 2026-11-17 | 121 个提交：新增 Load Image 节点（第 55 个）、App 模式、Clear VRAM、时间轴改「起点 / 时长 / 终点」三框、H3 Prompt Writer 大扩、前端缓存改启动期白名单、上传 4 GB 上限 | 见本文件所在提交 |
 
 两个提交之间的完整差异（`git diff --stat 6008d31..431941f`）：
 
@@ -37,9 +38,9 @@
 
 | 结论 | 数值 |
 | --- | --- |
-| 上游节点文件 | 44 个 `node_*.py`，注册出 54 个节点 |
-| 我们的节点文件 | 44 个 `node_*.py`，注册出 54 个节点（文件集完全一致，无缺无多） |
-| 逻辑结构不同的文件 | 3 个，均为有意修改：`_frontend_cache.py`（插件目录 + `web/ausboss`）、`_media_helpers.py`（版本改读 `_version.py`，删掉不再用的 `import re`）、`_single_copy.py`（不依赖 pyproject 判断重复安装） |
+| 上游节点文件 | 45 个 `node_*.py`，注册出 55 个节点（97 个 py 文件） |
+| 我们的节点文件 | 45 个 `node_*.py`，注册出 55 个节点（文件集完全一致，无缺无多） |
+| 逻辑结构不同的文件 | 3 个，均为有意修改：`_frontend_cache.py`（插件目录 + `web/ausboss`）、`_media_helpers.py`（版本改读 `_version.py`）、`_single_copy.py`（不依赖 pyproject 判断重复安装） |
 | f-string 插值表达式 | 与上游一致（唯一例外是重写过的 `_single_copy.py`） |
 
 核对已经脚本化，不用手抄 AST 片段：
@@ -186,20 +187,61 @@ PY
 
 `tools/check_ausboss.py` 在沙箱里能跑完整套（不需要 torch / numpy / PIL / ComfyUI）：
 
-- 编译：97 个 py 全过 `py_compile`；
-- 加载：桩环境走真实 import 路径 → 54 个节点、`failed_modules == []`；
-- 中文数据：54 节点的名称/描述/输出/标签/提示都含中文（`IMAGE`、`VAE` 这类类型名豁免）；
+- 编译：101 个 py 全过 `py_compile`；
+- 加载：桩环境走真实 import 路径 → 55 个节点、`failed_modules == []`；
+- 中文数据：55 节点的名称/描述/输出/标签/提示都含中文（`IMAGE`、`VAE` 这类类型名豁免）；
 - 覆盖率：对照提取到的英文原文，输入标签、下拉选项、输出数量都要齐；
 - 汉化层行为：注入假节点，断言**选项仍是 `["inner","outer"]`**、描述/输出名/分类变中文、
   `SEARCH_ALIASES` 里有中文名、`run(mode="inner")` 照常返回；
 - 前端：括号配平（能识别正则字面量）、相对 import 按**浏览器 URL 深度**解析（不是文件系统）、
   `labels.mjs` 的键都在 `nodes.json` 里；
-- 文档：54 篇都存在且含中文；
+- 文档：55 篇都存在且含中文；
 - 版本：`_version.py` / `shared/index.mjs` / `nodes.json` 三处一致；
 - f-string：源码里除那条正则外不得出现 `{{`。
 
 `tools/check_js.py` 会**跳过 `web/ausboss/`**（它的简易括号扫描会被 `/[\\/:*?"<>|]/` 这类正则误报），
 该目录由 `check_ausboss.py` 负责。两项分工写在两个脚本的注释里。
+
+---
+
+### 2.7 第二轮：对齐 v2.26.4（2026-11-20）
+
+上游从 `431941f`（2.24.0）走到 `v2.26.4`（`9e9121a`）累计 121 个提交、164 个文件、+9313/−1261：
+`nodes/` 35 个（5 新增、30 修改）、`js/` 63 个（9 新增、54 修改）、节点 54 → 55、帮助文档 54 → 55。
+HEAD（`aaf3ae6`）后面还挂 8 个未发版提交，**这次只跟 tag**，未发版功能等下一个 tag。
+
+1. **不整目录覆盖，改用三方合并**。base = `git archive 431941f nodes`、theirs = `git archive v2.26.4 nodes`，
+   工作区文件当 ours，对每个文件跑 `git merge-file -p --marker-size=7 <ours> <base> <theirs>`：
+   上游新逻辑进来，既有中文留在原地。新增文件直接 `cp`。
+   冲突一共 14 处（js 12 个文件、py 2 个文件），**策略固定**：py 取上游逻辑 + 保留我们的中文措辞；
+   js 一律取上游代码块（新英文串留给前端翻译管线），只有 import 冲突手工合成单条——
+   初版把「我们的 import」和「上游新增 import」都留着，`input_preview/index.js` 与
+   `shared/moment_strip.mjs` 因此报 `Identifier 'panelSwitch' has already been declared`。
+2. **两个自定义文件重打补丁**：`_frontend_cache.py` 取上游后重新指定 `PLUGIN_DIR` / `JS_DIR` /
+   `EXTENSION_KEY`（上游 2.26 新增的 `list_served_scripts()` 白名单要留着）；
+   `_media_helpers.py` 三方合并 0 冲突，但上游重新用上了 `re`，我们早先删过 `import re`，必须补回。
+3. **import 深度归一**：`web/ausboss/**` 出根 import 必须四级。用
+   `re.sub(r"(?:\.\./)+scripts/", "../../../../scripts/", s)` 一次抹平；
+   别用带后视的「恰好三级」正则，它会把四级路径从中间再匹配一次，越改越深。
+4. **Python 报错文案**：上游改写的 55 条（含 58 条 f-string 模板）要重译。**唯一可靠的做法**是
+   `copy.deepcopy` 整个 `Call` 节点 → 按「该常量前面有几个 `FormattedValue`」把译文分段写回
+   `Constant.value` → `ast.unparse(new_node)` → 用它替换 `Call` 自己的源码区间。
+   三种看似更轻的做法都崩过：直接拼 `f"..."`（表达式被换成空占位 → `f-string: empty expression not allowed`）、
+   按「常量数 = 占位符数 + 1」硬对齐（首尾空片段没有对应常量，错位切碎别的字符串）、
+   按字节 offset 裁切（`ast` 的 `col_offset` 是 **UTF-8 字节**偏移；隐式拼接的 f-string 里
+   `JoinedStr` 的位置指向后一段，会把译文插进前一段中间）。
+5. **前端文案**：`extract` 在当前树上只得到 536 条（多数已中文），按 CJK 切成纯英文 440 条 / 混排 96 条，
+   440 条分 4 份并行翻译后 `apply` → 回填 194 条、其余 246 条按规则原样保留（CSS、class 串、枚举取值、
+   节点名、格式 token），`node --input-type=module --check` 全过。
+6. **帮助文档**：合并后 13 篇里夹着英文段，按批重译；新节点的 `AUSBOSS_NODES_LoadImage.md` 整篇新译。
+7. **`locales/zh/nodeDefs.json`** 跟着上游覆盖成 54 条（它只是随包参考数据，不参与生成我们的中文）。
+8. **三处版本号**（`_version.py`、`shared/index.mjs`、`nodes.json`）一起改到 2.26.4，`UPSTREAM_COMMIT` 记 `9e9121a`。
+
+> ⚠️ 这一轮最大的事故：为了撤销一次失败的回填，跑 `git checkout -- ausboss/nodes`，
+> 把**还没提交**的三方合并整个打回 HEAD（2.24 版），30 个文件的中文与新逻辑全没了。
+> 恢复靠上面第 1 步的脚本重跑（结果与回滚前逐节点一致），代价是重译 62 条文案。
+> **教训：未提交的合并不能被 `git checkout -- <dir>` 撤销；动手改这类目录前先
+> `cp -a ausboss /tmp/ausboss_bak`。**
 
 ---
 
@@ -221,9 +263,13 @@ git diff --stat <上次的 UPSTREAM_COMMIT>..FETCH_HEAD
 
 有真正的代码变化时：
 
-1. **只搬变的文件**。`git diff --name-only` 出来的清单里，逐个 `cp` 上游 → 本地对应位置
-   （`nodes/x.py` → `ausboss/nodes/x.py`，`js/x` → `web/ausboss/x`）。别整目录覆盖——
-   会把我们改过的三处（`_frontend_cache` / `_media_helpers` / `_single_copy`）和中文文案冲掉。
+1. **只搬变的文件，并且用三方合并而不是覆盖**。`git diff --name-only` 出来的清单里，对每个改过的文件跑
+   `git merge-file -p --marker-size=7 <本地> <base> <上游>`（base = 上次的 `UPSTREAM_COMMIT`，
+   可用 `git archive <commit> nodes` 落成目录），新增文件直接 `cp`。别整目录 `cp -r`——
+   会把我们改过的三处（`_frontend_cache` / `_media_helpers` / `_single_copy`）和全部中文冲掉。
+   冲突按固定策略解：py 取上游逻辑 + 保留中文措辞；js 取上游代码块（英文串留给翻译管线），
+   import 冲突手工合成单条（两边都留会 `Identifier '…' has already been declared`）。
+   ⚠️ **动手前先 `cp -a ausboss /tmp/ausboss_bak`**：这些改动在提交前不受 git 保护。
 2. **新文件补 import 深度**：新增的 `web/ausboss/**` 文件若 import `../../../scripts/*.js`，改成 `../../../../scripts/`。
 3. **新节点 / 新选项要补中文**：
    ```powershell
@@ -240,6 +286,11 @@ git diff --stat <上次的 UPSTREAM_COMMIT>..FETCH_HEAD
 
 前端文案（`web/ausboss` 里的按钮与提示）如果上游改了字，按 `docs/10` 第 4 节的
 `extract` → 翻译 → `apply` → `check` 流程走一遍；**回填前不要手改源码**，否则偏移失效。
+只补新增/变动的条目时，`extract` 之后按「不含中文 + 有 2 个以上英文词」筛出待译子集即可
+（其余条目过滤器已经放过）。
+
+Python 侧的报错/日志若被上游改写，别按行号硬替换：`copy.deepcopy` 整个 `Call`、
+按 `FormattedValue` 分段写回 `Constant.value`、`ast.unparse` 后替换 `Call` 的源码区间（理由见 2.7 第 4 条）。
 
 ---
 
@@ -265,7 +316,7 @@ grep -rnE "(===|!==|\.includes\(|setValue\()[^;]*['\"][^'\"]*[\x{4e00}-\x{9fff}]
 
 ---
 
-## 5. 排错：界面上看不到这 54 个节点
+## 5. 排错：界面上看不到这 55 个节点
 
 按顺序查，别跳步：
 
@@ -275,11 +326,11 @@ grep -rnE "(===|!==|\.includes\(|setValue\()[^;]*['\"][^'\"]*[\x{4e00}-\x{9fff}]
    没有就说明 `ausboss/` 导入失败，往上找 `Traceback`；常见是某个上游模块缺 `av` / `cv2`，
    那种情况只会少几个节点，不会全没。
 4. **不启动 ComfyUI 直接问工具** —— `python tools\check_ausboss.py`，它会明确报
-   「加载 54 个节点」还是 `failed_modules: [...]`。
+   「加载 55 个节点」还是 `failed_modules: [...]`。
 5. **节点在界面哪儿** —— 节点面板分类 `🆎 AusBoss/…`；搜索框输入 `🆎`、`ausboss` 或中文名都能命中
    （中文名同时追加进了 `SEARCH_ALIASES`）。
 6. **用户另外装了独立 AusBoss** —— 我们的桥会让位给独立那份（同一 id 不覆盖），此时界面上的
-   54 个节点来自独立安装，中文界面由独立安装自己的 locale 决定。
+   55 个节点来自独立安装，中文界面由独立安装自己的 locale 决定。
 
 ---
 

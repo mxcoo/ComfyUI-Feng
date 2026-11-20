@@ -2064,7 +2064,7 @@ function pick(face, list, current, op) {
   const candidates = list.map((candidate) => settled(pic, candidate, op));
   const items = placed(face, candidates[current].items);
   if (!items.every((item, index) => touchFits([...face.items, ...items.slice(0, index)], item))) {
-    showToast({ detail: "这个节点的笔触已满。按「清除」，或撤销几次。", severity: "warn", summary: "Mask by Touch" });
+    showToast({ detail: "这个节点的笔触已满。按「清除」，或撤销几次。", severity: "warn", summary: "点选取遮罩" });
     return false;
   }
   const start = face.items.length;
@@ -2196,7 +2196,7 @@ function addItem(face, item) {
   // A touch that adds gets a chip of its own, unless it came with one.
   const own = item.op === 1 && !item.g ? placed(face, [item])[0] : item;
   if (!touchFits(face.items, own)) {
-    showToast({ detail: FULL, severity: "warn", summary: "Mask by Touch" });
+    showToast({ detail: FULL, severity: "warn", summary: "点选取遮罩" });
     return;
   }
   const rim = face.rim;
@@ -2254,7 +2254,7 @@ function addMark(face, mark) {
   const numbered = target.chip ? numberChip(face.items, target.chip, face.fresh) : { items: face.items, g: target.g };
   const own = { ...mark, g: numbered.g };
   if (!touchFits(numbered.items, own)) {
-    showToast({ detail: FULL, severity: "warn", summary: "Mask by Touch" });
+    showToast({ detail: FULL, severity: "warn", summary: "点选取遮罩" });
     return;
   }
   const selected = Boolean(face.active) && (face.active === face.fresh || (target.chip && face.active === chipId(target.chip)));

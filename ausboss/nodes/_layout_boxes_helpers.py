@@ -313,10 +313,7 @@ def boxes_from_input(data: Any, width: int, height: int) -> list[dict]:
             "`bboxes` 输入需要一个框 (x, y, width, height) 或带 'bbox' 的提示词元素。"
         )
     if not isinstance(data, list):
-        raise LayoutError(
-            "The bboxes input needs bounding boxes, prompt elements, or the same as JSON text, "
-            f"not {type(data).__name__}."
-        )
+        raise LayoutError(f'bboxes 输入要边界框、提示元素，或者同样内容写成 JSON 文本，而不是 {type(data).__name__}。')
     if not data:
         return []
     first = data[0]

@@ -142,10 +142,7 @@ def decode_audio_window(path: Path, start_seconds, end_seconds, max_seconds=0.0)
     if not chunks:
         if position == 0:
             raise ValueError(f"{path.name} 里没有声音。")
-        raise ValueError(
-            f"The start ({start:.2f} s) is past the end of {path.name}, "
-            f"which is {position / rate:.2f} s long. Drag the start back into the sound."
-        )
+        raise ValueError(f'起点（{start:.2f} 秒）超过了 {path.name} 的结尾，它只有 {position / rate:.2f} 秒长。把起点往回拖进声音范围里。')
     data = np.concatenate(chunks, axis=1).astype(np.float32, copy=False)
     return {
         "waveform": torch.from_numpy(np.ascontiguousarray(data)).unsqueeze(0),

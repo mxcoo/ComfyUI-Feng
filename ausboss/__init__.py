@@ -1,4 +1,4 @@
-"""AusBoss 节点包 —— 上游 ComfyUI-AusBoss v2.24.0 的整体移植。
+"""AusBoss 节点包 —— 上游 ComfyUI-AusBoss v2.26.4 的整体移植。
 
 上游用 V1 写法（ComfyUI 直接读本模块的 NODE_CLASS_MAPPINGS），Feng 主体用 V3 写法
 （comfy_entrypoint + io.ComfyNode）。ComfyUI 的加载器对同一个 __init__.py 只走一条分支，
@@ -41,6 +41,7 @@ NODE_MODULES = [
     "node_lama_inpaint",
     "node_layout_boxes",
     "node_literals",
+    "node_load_image",
     "node_load_image_pad",
     "node_load_audio",
     "node_load_video",

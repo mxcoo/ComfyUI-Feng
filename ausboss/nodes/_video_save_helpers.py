@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from av.video.reformatter import ColorRange, Colorspace
 
+from ._route_errors import error_detail
 from ._execution_helpers import advance_progress, frame_progress, raise_if_interrupted
 
 AAC_FRAME_SIZE = 1024
@@ -290,10 +291,7 @@ def encode_video(
 ) -> tuple[int, int, int]:
     """Write the encoded file; returns (width, height, frame_count)."""
     if video_format not in VIDEO_FORMATS:
-        raise ValueError(
-            f"Save Video format must be one of {tuple(VIDEO_FORMATS)}, "
-            f"not '{video_format}'."
-        )
+        raise ValueError(f"Save Video 的格式只能是 {tuple(VIDEO_FORMATS)} 之一，不能是 '{video_format}'。")
     spec = VIDEO_FORMATS[video_format]
     batch = even_frames(frames) if spec.needs_even else frames
     if batch.ndim != 4 or batch.shape[0] < 1:
@@ -360,12 +358,8 @@ def encode_video(
 
 def _encoder_start_error(codec: str, exc: Exception) -> RuntimeError:
     if "nvenc" in codec:
-        return RuntimeError(
-            "Save Video: the nvenc formats need an NVIDIA GPU with a working "
-            "driver. Pick a software format such as 'mp4 h264' instead. "
-            f"(The '{codec}' encoder said: {exc})"
-        )
-    return RuntimeError(f"Save Video could not start the '{codec}' encoder: {exc}.")
+        return RuntimeError(f"Save Video：nvenc 格式需要一块装了正常驱动的 NVIDIA 显卡。改用 'mp4 h264' 这类软件编码格式。（'{codec}' 编码器说：{error_detail(exc)}）")
+    return RuntimeError(f"Save Video 无法启动 '{codec}' 编码器：{error_detail(exc)}。")
 
 
 def _add_video_stream(container, spec: VideoFormat, rate, width: int, height: int, crf: int):

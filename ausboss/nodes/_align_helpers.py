@@ -143,15 +143,9 @@ def align_image(
     if not isinstance(image, torch.Tensor) or image.ndim != 4:
         raise ValueError("Align Image 需要 BHWC 格式的 IMAGE 批次。")
     if crop_position not in CROP_POSITIONS:
-        raise ValueError(
-            f"Align Image crop_position must be one of {CROP_POSITIONS}, "
-            f"not '{crop_position}'."
-        )
+        raise ValueError(f"Align Image 的 crop_position 只能是 {CROP_POSITIONS} 之一，收到的是 '{crop_position}'。")
     if pad_position not in PAD_POSITIONS:
-        raise ValueError(
-            f"Align Image pad_position must be one of {PAD_POSITIONS}, "
-            f"not '{pad_position}'."
-        )
+        raise ValueError(f"Align Image 的 pad_position 只能是 {PAD_POSITIONS} 之一，收到的是 '{pad_position}'。")
     if pad_fill not in PAD_FILLS:
         raise ValueError(
             f"Align Image 的 pad_fill 只能取 {PAD_FILLS}，不能是 '{pad_fill}'。"

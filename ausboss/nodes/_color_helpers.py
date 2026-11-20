@@ -319,15 +319,9 @@ def match_colors(
     if not isinstance(reference, torch.Tensor) or reference.ndim != 4:
         raise ValueError("Color Match 需要 BHWC 格式的参考 IMAGE。")
     if reference.shape[0] not in (1, image.shape[0]):
-        raise ValueError(
-            f"Reference batch {reference.shape[0]} cannot broadcast across "
-            f"image batch {image.shape[0]}."
-        )
+        raise ValueError(f'参考图批次 {reference.shape[0]} 无法广播到图像批次 {image.shape[0]}。')
     if method not in COLOR_MATCH_METHODS:
-        raise ValueError(
-            f"Color Match method must be one of {COLOR_MATCH_METHODS}, "
-            f"not '{method}'."
-        )
+        raise ValueError(f"Color Match 的 method 只能是 {COLOR_MATCH_METHODS} 之一，不能是 '{method}'。")
     image = image.float()
     reference = reference.float()
     strength = max(0.0, min(1.0, float(strength)))
@@ -344,10 +338,7 @@ def match_colors(
 
             raise ValueError(mask_size_mismatch(mask, int(image.shape[1]), int(image.shape[2])))
         if mask.shape[0] not in (1, image.shape[0]):
-            raise ValueError(
-                f"Mask batch {mask.shape[0]} cannot broadcast across "
-                f"image batch {image.shape[0]}."
-            )
+            raise ValueError(f'遮罩批次 {mask.shape[0]} 无法广播到图像批次 {image.shape[0]}。')
         mask = mask.float().clamp(0.0, 1.0)
         if invert_mask:
             mask = 1.0 - mask
