@@ -2,6 +2,322 @@
 
 All notable changes to ComfyUI-AusBoss are documented here.
 
+## 2.26.4 - 2026-11-18
+
+- **A video upload stops at 4 GB.** Dropping a video on Load Video had no
+  size limit, so a huge file could fill the input folder. An upload over
+  4 GB is now refused with a message, and the partly saved file is removed.
+
+- **Image Crop + Rotate + Pad shows your picture in every browser.** Some
+  browsers and privacy add-ons (Firefox's fingerprint protection, Brave
+  Shields, canvas blockers) blank a picture when a page reads its pixels.
+  The node read that as a fully see-through picture and drew an empty stage,
+  although the size line and the run were right. It now checks first and,
+  where reads are blocked, draws the picture as it is; only the teal tint
+  over see-through parts is missing there.
+
+- **Image Compare A/B always rests on the same picture.** While the
+  pointer is away, a new node shows B, the "after" picture. To show A
+  instead, right-click the node; the choice is saved with the workflow.
+  Earlier versions worked the side out from the links on every run, and a
+  workflow whose "before" came out of a switch showed the before. A
+  workflow saved by an earlier version keeps showing the picture it did.
+
+- **Layout Boxes 🆎 places people for MiniMax H3 Image.** A new
+  `h3_prompt` output says the boxes in words: who goes where, how big, and
+  who stands beside whom. Describe each person in their box by their
+  picture and what they do, such as "the man from <Picture 2>, sitting on
+  the couch"; the scene on `background` is `<Picture 1>`. Places are said in
+  words only, because H3 Image draws numbers from a prompt onto the picture.
+
+- **H3 Prompt Writer's Camera says "from the video" when the video sets
+  the camera.** With a clip wired to copy its moves, swap the person, give it
+  a new voice or change something, the first Camera choice now reads "from
+  the video": the camera does what it does in the clip. It is the same
+  choice as "as typed", so saved workflows are unchanged.
+
+- **A picture whose name starts with a space now shows its preview.** The
+  name was trimmed before the preview was asked for, so Image Crop + Rotate
+  + Pad and the other nodes that share that code looked for a file that
+  did not exist.
+
+## 2.26.3 - 2026-11-17
+
+- **Tone match now works on inpaints.** On a Crop For Inpaint 🆎 crop,
+  Stitch Inpaint 🆎 read the colour shift in the soft edge around the
+  painted area. Workflows such as Krea 2 Inpaint Masked let the model paint
+  a little wider than that edge, so the edge came back close to your picture
+  and the slider hardly did anything: in a test on skin it took off a
+  third of the shift at 1. It is now read just inside the painted area and
+  takes off more than half, on a picture of any size. A workflow that already had Tone match on for
+  an inpaint gives a slightly different picture, closer to the original's
+  colour. When the painted area holds something new, it is matched to your
+  picture right beside it where the two look alike, such as new skin where
+  a shirt was. Something different from what is beside it, such as a
+  swimsuit over skin, is left as painted; before, Tone match could tint the
+  whole patch with the opposite colour. Outpaints, blend in and Tone match 0
+  are unchanged.
+
+- **Copy a crop node's picture without its handles.** Right-click the picture
+  on Image Crop + Rotate + Pad and choose Copy image. By default it copies
+  the original picture. To include crop, rotation, padding and resize, turn
+  on Copy with crop, rotation and padding in the gear menu. Editing controls
+  and guides are never copied. Open image provides a clean
+  picture to copy with the browser on plain HTTP addresses too.
+
+- **H3 Prompt Writer: a swap reads the new person's looks however you type
+  them.** `@1 looks like ...` on the same line as the swap sentence, and
+  clothes on a line of their own (`@1 is wearing a black suit.`), were
+  left out of the prompt without a word, and the clip often came back
+  unchanged. Both are now used.
+
+- **H3 Prompt Writer no longer drops lines.** When one line held two
+  people talking, like `The phone says: "Get a job." @1 looks up and says:
+  "What?"`, only the first words reached the prompt. Each quote is its own
+  moment now. A swap's `@1 looks like` line also keeps only the looks: a
+  sentence after it that names an `@` again, like `The trees behind @1 stay
+  the same.`, is read as its own line instead of going into the description
+  with a raw `@1`. `"Hi," she says` is spoken as "Hi." instead of "Hi,.",
+  and a Chinese or Japanese line keeps its own full stop: "。", not "。.".
+
+- **H3 Prompt Writer can carry a line across a cut.** End the words with
+  `...` and the person keeps talking into the next shot, without saying the
+  words twice. On the last line, `...` lets the clip end mid-sentence. A line
+  too long for its shot carries on the same way instead of a warning.
+
+- **H3 Prompt Writer makes 4-second clips.** The shortest length went from
+  5 to 4 seconds.
+
+- **H3 Prompt Writer can put the person from your video somewhere new.** With
+  Copy its moves and no person picture, the person in the video keeps their
+  own look and moves. Give a picture the job place and type `He dances in @1.`
+  Before, the node asked for a person picture and stopped. Copy its moves
+  also takes its length from the video now, like Swap, Change something and
+  New voice.
+
+- **H3 Prompt Writer can restyle a video from a picture.** With Change
+  something and a style or place picture, the look comes from the picture
+  instead of the video. Type `It looks like @1.` A clip with nobody in it,
+  like an empty hallway, no longer gets a made-up person in its prompt.
+
+- **H3 Prompt Writer can make a thing do the moves.** With Copy its moves or
+  Swap the person and no person picture, a thing picture your lines make do
+  the action (a cartoon hand, a toy) takes the moves in its own look. A thing
+  that is held or worn stays a prop.
+
+- **H3 Prompt Writer's job lists take a click again.** Picking a job from a
+  chip's list closed the list without changing the job.
+
+- **H3 Prompt Writer's job lists match the node.** The pick list on each
+  picture and on the video opens under its chip in the node's own colours
+  and grows with the zoom. Before, it was the browser's small plain list.
+
+- **An AI agent can now learn the video workflows from the repository.**
+  `npx skills add ausboss/ComfyUI-AusBoss` gives your agent a skill for the
+  MiniMax H3 Pika Person Swap and Pika Remix workflows: how to write the
+  words, which model files to get, and how to run a workflow in your
+  ComfyUI. The same page is at https://ausboss-examples.vercel.app/skill.md.
+
+- **The "AusBoss was updated" message no longer asks for a reload by
+  mistake.** After the Manager switched the pack to another version, a
+  page reload before ComfyUI restarted brought up the message, telling you
+  the page was older than the pack when it was newer. A restart was what
+  was needed. Now the message only comes up when the pack really is newer
+  than the page, and versions such as 2.25.10 and 2.25.9 are compared as
+  numbers.
+
+- **LoRA routes only open files on ComfyUI's LoRA list.** The LoRA
+  Loader's info, hash and preview routes used to hand the name they were
+  given to ComfyUI's file lookup and check the answer afterwards. Now the
+  name is matched against the list first, and a name that is not on it is
+  refused before anything on disk is looked up.
+- **Image Folder 🆎 checks a folder or picture name as text before the
+  disk.** A drive letter in the middle of a name, or a control character,
+  is refused like `..`, and the joined path is checked before it is
+  resolved as well as after. The list no longer sends each picture's size
+  and time; the thumbnail's cache tag is a short hash instead.
+- **Error messages no longer pass on server paths.** When a model,
+  decoder or encoder fails, its message can name a file on the server's
+  disk. SAM 3 masks, LoRA loading and video saving now keep the kind of
+  error and drop its words when they name a path, since node errors reach
+  the browser and stay in the history.
+
+## 2.26.2 - 2026-11-14
+
+- **Loaders never look up a file name they refused.** Before each run,
+  Load Image 🆎, Load Image + Pad 🆎, Image Crop + Rotate + Pad 🆎 and both
+  Video Crop + Rotate + Pad nodes check whether their file changed. When the
+  name was one they do not accept, such as a whole path or a network share,
+  that check still looked it up on disk. On Windows, looking up a share
+  contacts its server and hands it the computer's login. Now a refused name
+  is only compared as text.
+- **The pack's scripts are found without looking up the address.** The pack
+  tags its scripts with a version as the browser asks for them. It found
+  each one by joining the address the browser sent to its own folder and
+  looking the result up on disk, and only then checked that the file was
+  its own. Now it looks the address up in a list of its scripts made when
+  ComfyUI starts, so no address reaches the disk.
+- **Save Image's Save button copies only pictures it holds.** With Auto
+  save off, the list of a run's held pictures was a file in ComfyUI's temp
+  folder. That folder takes uploads, so a planted list could copy another
+  file on the server into the output folder. The list now stays in
+  ComfyUI's memory, and a held picture is found only by its run, its number
+  and one of Save Image's formats. The Save button works for the last 256
+  runs, up to 10,000 pictures each; held pictures still go when ComfyUI
+  restarts, as before.
+
+## 2.26.1 - 2026-11-14
+
+- **A path that starts with `~` is no longer expanded.** Image Folder used
+  to turn a pasted `~/...` path into a full one before checking that it sits
+  inside ComfyUI's folders; now only a path written out in full is checked.
+  LaMa Inpaint only opens a model from ComfyUI's `models/lama` list. Nothing
+  outside those folders could be read before either; this removes the code
+  that looked as if it could.
+
+## 2.26.0 - 2026-11-14
+
+- **Missing LoRAs show in ComfyUI's missing-models list.** When a workflow
+  needs a LoRA you don't have, ComfyUI's Issues panel now lists it with the
+  other missing models, so **Download all** fetches it too. Before, the
+  list skipped every LoRA in a LoRA Loader 🆎, and Run then stopped on
+  "missing LoRA file". A LoRA that moved to another folder, or a row that is
+  switched off, is not listed.
+
+- **Link tiles and title tiles snap by the edge you see.** A tile draws a
+  card inside a wider see-through frame, and Snap into line used that frame,
+  so tiles lined up with a gap around them, and a tile you dragged never
+  snapped at all. Now a dragged tile lines up, and other nodes line up with
+  it, by the card's own edges.
+
+- **Cards work in App mode.** App mode is ComfyUI's simple form view of a
+  workflow: a few labelled fields and a Run button. A field from a node
+  with a card (a picture or video loader, H3 Prompt Writer) used to show
+  as an empty row there. Now it shows a real control: a file list with an
+  upload button, a video list, a text box. Back in the graph, the node
+  looks the same as before.
+- **The video crop nodes take uploads in App mode.** Video Crop + Rotate +
+  Pad and its Clip version now tell ComfyUI that their video list takes
+  uploads, as the picture nodes do. In App mode the clip field gets the same
+  picker as a picture field: your videos as thumbnails, an Upload button and
+  a folder button. On the node itself nothing changes.
+
+- **Models you already have are picked for you.** When a workflow asks for
+  a model file you keep in a subfolder (`minimax-h3/model.safetensors`),
+  ComfyUI used to mark its loader red until you clicked **Use it** on the
+  workflow's Guide. Now the Guide switches the loader to your copy as the
+  workflow opens and says so in a short message. That matters most in App
+  mode, which shows no Guide to click. With two copies in different
+  subfolders it still asks. Turn it off in Settings, 🆎 AusBoss, Models.
+
+- **The video clip's timing is three boxes: Start, Duration, Ends at.** On
+  Video Crop + Rotate + Pad (Clip), the Length on/off switch is gone. Drag
+  the start to move the clip, drag the end or type a Duration to change how
+  long it is, and switch between seconds and frames. Details sit in hover
+  text; a short note shows only when something needs fixing, with a button
+  to fix it. Saved workflows open with the same values and run the same.
+- **A linked frame rate no longer stops the clip's start too early.** With
+  a rate wired in, a typed start of frame 60 used to settle on frame 7; it
+  now lands where you put it, and the start handle stops only where the
+  Duration no longer fits. A rate set inside a subgraph now counts as
+  known, so the clip shows its length before you run.
+- **Linked clip lengths say where they come from.** A box set by another
+  node shows a **linked** button that jumps to that node. A cap that the
+  video cannot fill says how many frames you get, and a count only known
+  when the graph runs shows the room left after the start.
+- **H3 Prompt Writer says how much of the clip H3 uses.** When the video
+  comes from the clip node, it shows how many of the clip's frames H3
+  makes and where in the video that stops, and which Durations use all of
+  it.
+- **Crop + Rotate + Pad panels fill the node's width.** The rows under the
+  picture used to stop at 460 px and sit in the middle of a wide node.
+- **Load Video uses the same timing boxes as the clip node.** Start,
+  Duration and Ends at replace the IN and OUT fields and the separate
+  Limit row, with the same seconds | frames switch. Saved workflows open
+  with the same values and run the same.
+- **Load Video counts the frames the file really has.** The face used to
+  work the count out from the length and could say one frame too many (248
+  for a 247-frame clip); it now reads it from the file.
+- **Load Audio has Start, Duration and Ends at boxes.** They replace the IN
+  and OUT times and the separate Max length row, so the red "cut" stripe is
+  gone: the Duration is the length you get.
+- **A number wired through a Reroute or a subgraph now shows on the face.**
+  The clip node, Load Video, Load Audio and Layout Boxes read a linked
+  number the same way, so it no longer drops out behind a Reroute, a
+  subgraph or an older Primitive node.
+
+## 2.25.3 - 2026-11-13
+
+- **The video clip's frame readout explains itself.** On Video Crop + Rotate
+  + Pad (Clip), the small `fr 52 · 0:02.17` beside Play now says in plain
+  words, when you point at it, which frame the picture shows and how many
+  seconds into the video it is. The help page explains it too.
+
+## 2.25.2 - 2026-11-13
+
+- **The video clip's IN handle always drags.** On Video Crop + Rotate + Pad
+  (Clip), a Length as long as the clip or longer used to lock IN, and the
+  only way to trim the start was to turn Length off. Now IN drags anyway:
+  the Length then only caps the clip, and the clip's own end is OUT. A
+  Length shorter than the clip works as before.
+
+## 2.25.1 - 2026-11-13
+
+- **Edit Lock Restore 🆎 takes out the pink tint.** MiniMax H3 Image gives
+  every edit a faint pink, slightly lighter tint over the whole picture.
+  Edit Lock already removed it wherever it locked, but when it stepped
+  aside (a new hair color, a new background, rain) the tint stayed. A new
+  **Remove tint** switch, on by default, reads the tint from the part of
+  the picture the edit left alone and takes it out of the whole picture.
+  Edits meant to recolor everything, such as golden hour or red light, are
+  left as they are. Turn it off to get the old behavior.
+
+## 2.25.0 - 2026-11-12
+
+- **New node: Load Image.** Loads a picture and sets its size in the same
+  node, so a workflow needs no resize node after its loader. Size can be a
+  megapixel count, a longest side, a scale, a box the picture fits inside, or
+  a box it fills by cropping, rounded to a multiple you choose. It can also
+  cut a piece or a shape such as 16:9 out of the picture without resizing,
+  and you pick which part is kept: the center, a side or a corner. Arrows
+  step through the pictures in the input folder. Two small pictures on the
+  node show what goes in and what comes out, with both sizes and what is
+  cut off, before you run. It also gives the file's name and its original
+  size. With Size off the picture comes out exactly as the file has it.
+
+- **Clear VRAM from the right-click menu.** Right-click the empty canvas
+  and pick **Clear VRAM 🆎** to unload every model and free memory on the
+  ComfyUI server, the same as ComfyUI's own "Unload Models and Execution
+  Cache". A short message says when it is done. Turn the entry off in
+  Settings, 🆎 AusBoss, Memory.
+
+- **Callout 🆎: Info card.** Right-click a Callout and pick **Info card**
+  for a small card with a title, a list of labels and values, and small
+  print, such as a table of run times. Write a row as `label | value`; a
+  row in **bold** is drawn in teal so the one to pick stands out. The first
+  line is the title, and a ⏱️ ℹ️ ⚠️ 💡 or ✅ at its start becomes a small
+  icon. An older pack shows the card as a plain note with its rows written
+  out.
+
+- **Save Image shows big pictures at once.** The node now shows a small
+  copy of each picture, a few hundred kilobytes, where it used to load the
+  whole file. A 30 MB sheet on a ComfyUI opened from another computer took
+  half a minute to show, or never did; it now shows as the run ends. The
+  saved file is the same full-size file as before.
+
+- **Save Image: the Save button is hard to miss.** With **Auto save** off,
+  a row over the picture now says **Not saved yet** and holds a solid
+  **Save picture** button. Before, it was a small SAVE label in the corner.
+  With several pictures the button reads **Save all 4**, or **Save this
+  one** when the arrows are on one picture. After a save the row says the
+  name the picture was saved under.
+
+- **A picture that loads slowly no longer leaves the old one up.** When a
+  result took more than about 16 seconds to reach the browser, the node
+  kept the picture from the run before. Now the new picture always shows,
+  and the old one dims while the new one loads. This fixes Select Frame,
+  Mask Refine, Mask by Name and LaMa Inpaint as well as Save Image.
+
 ## 2.24.0 - 2026-11-12
 
 - **New node: Edit Lock.** Keeps every part of your picture that an edit
