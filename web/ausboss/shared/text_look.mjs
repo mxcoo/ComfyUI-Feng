@@ -36,7 +36,7 @@ export function setTextLook(node, look) {
 export const TEXT_LOOK_MENU = [
   {
     key: "look",
-    label: "Look",
+    label: "外观",
     type: "choice",
     options: TEXT_LOOKS,
     default: "normal",

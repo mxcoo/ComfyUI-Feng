@@ -292,7 +292,7 @@ function showPlanDialog(rows) {
 
   const footer = document.createElement("footer");
   const cancel = document.createElement("button");
-  cancel.textContent = "Cancel";
+  cancel.textContent = "取消";
   const apply = document.createElement("button");
   apply.className = "ausboss-replace-apply";
   const close = () => overlay.remove();

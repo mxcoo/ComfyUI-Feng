@@ -141,7 +141,7 @@ function setReady(state) {
 function showSaved(state, files) {
   const links = savedLinks(files);
   if (!links.length) return;
-  state.caption.textContent = "Saved ";
+  state.caption.textContent = "已保存 ";
   links.forEach(({ label, file }, index) => {
     const link = document.createElement("a");
     link.textContent = label;
@@ -346,10 +346,10 @@ function buildPanel(node) {
     // Each choice as wide as its name, so the row still fits a narrow node.
     fit: true,
     options: [
-      { value: "slide", label: "Slide", title: "滑动：线跟着指针划过图片，左边是 A，右边是 B" },
+      { value: "slide", label: "滑动", title: "滑动：线跟着指针划过图片，左边是 A，右边是 B" },
       { value: "a", label: "A", title: "显示图片 A 并停住" },
       { value: "b", label: "B", title: "显示图片 B 并停住" },
-      { value: "erase", label: "Erase", title: "擦除：用笔刷把一张图擦掉，让另一张透出来，然后保存这个混合结果" },
+      { value: "erase", label: "擦除", title: "擦除：用笔刷把一张图擦掉，让另一张透出来，然后保存这个混合结果" },
     ],
     value: "slide",
     signal,

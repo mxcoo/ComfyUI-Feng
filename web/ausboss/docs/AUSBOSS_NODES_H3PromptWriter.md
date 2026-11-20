@@ -103,10 +103,10 @@ CUT 的一行。把指针停在 "What happens" 旁边的 `?` 上，可以看到�
 自己设定。这个开关初始是关闭的。
 
 有生效的视频时，**swap the person**、**change something** 和
-**new voice** 用输入的片段来设定帧数。**Length** 显示
+**new voice** 用输入的片段来设定帧数。**秒数** 显示
 **From the clip**；在上游设定片段长度。对这类用途，进度条不显示猜测的
 时长，也不提供重定时控件。H3 会把帧数取整到支持的长度。其他视频
-用途，或关闭视频，则重新使用可编辑的 **Length**。
+用途，或关闭视频，则重新使用可编辑的 **秒数**。
 
 做替换时，你可以选择单独用一行描述替换者：
 
@@ -131,7 +131,7 @@ the woman with black hair walking toward the camera
 - **说话**：把话放在引号里：`@1 says "we are late."` 每个人保留自己
   的声音。
 - **招牌上的字**：指明招牌：`a neon sign reads "OPEN"`。
-- **声音与音乐**：使用 **Sound** 和 **Music** 框，或输入
+- **声音与音乐**：使用 **声音** 和 **音乐** 框，或输入
   `sound: rain on a tin roof` 和 `music: slow sad piano`。没有音乐
   就没有音乐，片段出来会更安静。
 - **镜头与外观**：在节点上选，或自己输入：`camera: slow push in`、
@@ -180,21 +180,21 @@ the woman with black hair walking toward the camera
 
 ## 控件
 
-- **Sound**（`sound`）：整个片段听起来的样子。等同于 `sound:` 行。
-- **Music**（`music`）：整个片段的音乐。等同于 `music:` 行。
-- **Length**（`seconds`）：片段多长，5 到 15。
-- **Camera**（`camera`）：镜头自始至终如何运动。
-- **Look**（`look`）：**from the picture** 保留你照片的外观。其他
+- **声音**（`sound`）：整个片段听起来的样子。等同于 `sound:` 行。
+- **音乐**（`music`）：整个片段的音乐。等同于 `music:` 行。
+- **秒数**（`seconds`）：片段多长，5 到 15。
+- **机位**（`camera`）：镜头自始至终如何运动。
+- **外观**（`look`）：**from the picture** 保留你照片的外观。其他
   选项会重绘片段。Clay 和 3D 无法从文字生成，所以先用编辑模型改你的
   图片。
-- **Picture 1** 到 **Picture 4**（`job_1` 到 `job_4`）：每张图片的
+- **任务 1** 到 **任务 4**（`job_1` 到 `job_4`）：每张图片的
   用途，在进度条下方的图片小片上设定。空位显示为淡淡的 `+ @3`。
-- **Video**（`video_job`）：视频的用途，在视频小片上。
-- **Song starts at**（`song_start`，在 **More** 下）：歌曲从第几秒
+- **视频任务**（`video_job`）：视频的用途，在视频小片上。
+- **歌曲起点**（`song_start`，在 **More** 下）：歌曲从第几秒
   开始，好让片段拿到好听的那一段。
-- **Moments on the beat**（`cut_on_beat`，在 **More** 下）：把每个
+- **按节拍切**（`cut_on_beat`，在 **More** 下）：把每个
   瞬间挪到歌曲最近的拍子上。关闭则保留你自己的秒数。
-- **Language**（`language`，在 **More** 下）：引号中文字的语言。
+- **语言**（`language`，在 **More** 下）：引号中文字的语言。
 
 ## 提示
 

@@ -610,10 +610,10 @@ export function transformGroupSummary(state) {
   if (request) {
     parts.push(`${aspectMode(state)} ${request}`);
   } else if (!picture || isUntouched(current, source)) {
-    parts.push("Source");
+    parts.push("原图");
   } else {
     const canvas = canvasSize(current, source);
-    parts.push(`Custom ${ratioLabel(canvas.width, canvas.height)}`);
+    parts.push(`自定义 ${ratioLabel(canvas.width, canvas.height)}`);
   }
   if (lockActive(state)) parts.push("held");
   const feather = Math.round(Number(value(node, "feather", 0)) || 0);
@@ -744,7 +744,7 @@ export function installTransformNode(node, kind, mountPanel = null) {
   const resetCrop = createElement("button", "ausboss-transform-button", "重置裁剪");
   resetCrop.title = "重新显示整张画面；旋转、扩边和时间轴都保留。挂锁锁上时，为保持形状加出来的边条也会一起去掉。";
   resetCrop.addEventListener("click", () => resetCropKeepingShape(state));
-  const reset = createElement("button", "ausboss-transform-button", "Reset");
+  const reset = createElement("button", "ausboss-transform-button", "重置");
   reset.title = "重置旋转、裁剪和扩边，并关掉挂锁。填充、羽化、对齐和时间轴都保留。";
   reset.addEventListener("click", () => {
     resetGeometry(node);
@@ -995,7 +995,7 @@ function buildAspectChipRow(state) {
   const glyph = createElement("span", "ausboss-transform-aspect-glyph");
   flip.append(glyph);
   row.append(flip);
-  const caption = createElement("span", "ausboss-transform-aspect-caption", "Ratio");
+  const caption = createElement("span", "ausboss-transform-aspect-caption", "比例");
   row.append(caption);
   const oriented = (aspect) => chipsPortrait(state) ? turnAspect(aspect) : aspect;
   flip.addEventListener("click", () => { turnCanvas(state); draw(state); });
@@ -1040,16 +1040,16 @@ function buildAspectChipRow(state) {
     glyph.style.width = portrait ? "10px" : "16px";
     glyph.style.height = portrait ? "16px" : "10px";
     if (held) {
-      caption.textContent = "Held";
+      caption.textContent = "保持";
       caption.title = `挂锁会保持这个形状（${request ?? ratioLabel(canvas.width, canvas.height)}），拖动控制点时一直有效。`;
     } else if (request || !picture) {
-      caption.textContent = "Ratio";
+      caption.textContent = "比例";
       caption.title = "点一个比例就把画面扩边到该比例（Fit 选了裁剪时则裁到它）。再点亮的那个回到整张画面。";
     } else {
-      caption.textContent = untouched ? "Source" : "Custom";
+      caption.textContent = untouched ? "原图" : "自定义";
       caption.title = `${untouched ? "画面自身的形状" : "没有比例按钮是这个形状"}: ${canvas.width}×${canvas.height} (${ratioLabel(canvas.width, canvas.height)}）。点一个比例就能用。`;
     }
-    caption.classList.toggle("generic", caption.textContent === "Ratio");
+    caption.classList.toggle("generic", caption.textContent === "比例");
     caption.classList.toggle("custom", Boolean(picture && !request && !untouched && !held));
     caption.classList.toggle("held", held);
     for (const { chip, aspect } of chips) {
@@ -1111,8 +1111,8 @@ function buildAspectModeRow(state, faceCaption) {
   const { root: pill, set } = makeSlideSwitch({
     label: "适配比例",
     options: [
-      { value: "crop", label: "Crop", title: "把画面裁到选中的比例。" },
-      { value: "pad", label: "Pad", title: "保留整张画面，补填充到选中的比例。" },
+      { value: "crop", label: "裁剪", title: "把画面裁到选中的比例。" },
+      { value: "pad", label: "扩边", title: "保留整张画面，补填充到选中的比例。" },
     ],
     onChange: (mode) => {
       if (aspectMode(state) === mode) return;
@@ -1369,18 +1369,18 @@ function buildCanvasRow(state) {
   fill.title = fillTitle;
   fill.addEventListener("input", () => { setValue(node, "fill_color", fill.value); draw(state); });
   fill.addEventListener("change", () => notifyAusbossChange());
-  fillLabel.append(createElement("span", "", "Fill"), fill);
+  fillLabel.append(createElement("span", "", "填充色"), fill);
   const featherLabel = createElement("label");
   const feather = makeScrubInput({ value: value(node, "feather", 0), min: 0, max: 4096, step: 1, decimals: 0, width: 62, unit: "px",
     title: video
       ? "遮罩向保留帧内的羽化，单位像素。不管羽化多少，保留帧对填充都保持硬边，所以黑边 outpaint 仍能看到自己的黑条。"
       : "遮罩向保留像素内的羽化；画面与填充之间保持硬边。",
     onChange: (amount) => { setValue(node, "feather", amount); draw(state); updateModalInfo(state); }, onSettle: notifyAusbossChange });
-  featherLabel.append(createElement("span", "", "Feather"), feather.root);
+  featherLabel.append(createElement("span", "", "羽化"), feather.root);
   // A span, not a label: a label passes a click on its text to the first button.
   const centre = buildCentreButtons(state);
   const centreLabel = createElement("span", "ausboss-transform-centre-label");
-  centreLabel.append(createElement("span", "", "Center"), centre.root);
+  centreLabel.append(createElement("span", "", "居中"), centre.root);
   const alignRow = createElement("div", "ausboss-transform-row ausboss-transform-canvas-row ausboss-transform-align-row");
   const alignment = createElement("label");
   const multiple = makeScrubInput({ value: value(node, "canvas_multiple", 1),
@@ -1388,7 +1388,7 @@ function buildCanvasRow(state) {
     title: "缩放前把画布宽高对齐到这个数的倍数。会通过加扩边、或裁掉没扩边的边来对齐。填 1 关闭对齐。",
     onChange: (amount) => { setValue(node, "canvas_multiple", amount); draw(state); updateModalInfo(state); },
     onSettle: notifyAusbossChange });
-  alignment.append(createElement("span", "", "Align"), multiple.root);
+  alignment.append(createElement("span", "", "对齐"), multiple.root);
   alignRow.append(alignment, centreLabel);
   row.classList.add("ausboss-transform-fill-row");
   row.append(fillLabel, featherLabel);
@@ -1396,7 +1396,7 @@ function buildCanvasRow(state) {
   const resizeLabel = createElement("label");
   const resize = resizeSwitch(state);
   resizeLabel.title = "把输出缩放到指定的百万像素预算，每边按步长取整（LTX 和 Wan 用 32）。";
-  resizeLabel.append(createElement("span", "", "Resize"), resize.pill);
+  resizeLabel.append(createElement("span", "", "缩放"), resize.pill);
   const budgetLabel = createElement("label");
   const budget = makeScrubInput({ value: value(node, "megapixels", 1), min: 0.01, max: 16, step: 0.05, fineStep: 0.01, decimals: 2, width: 72, unit: "MP",
     title: "输出的百万像素预算（× 1024×1024）。画面下面的尺寸读数会显示落在哪里。",
@@ -1406,7 +1406,7 @@ function buildCanvasRow(state) {
   const steps = makeScrubInput({ value: value(node, "resolution_steps", 1), min: 1, max: 256, step: 8, fineStep: 1, decimals: 0, width: 66, unit: "px", snap: true,
     title: "把缩放后的每一边取整到这个数的倍数（LTX 和 Wan 用 32，图像模型用 8 或 64）。两边各自取整，步长太大时画面会被轻微拉伸；超过 1% 读数会提示。",
     onChange: (amount) => { setValue(node, "resolution_steps", amount); draw(state); updateModalInfo(state); }, onSettle: notifyAusbossChange });
-  stepLabel.append(createElement("span", "", "Step"), steps.root);
+  stepLabel.append(createElement("span", "", "步长"), steps.root);
   const hasResize = Boolean(widget(node, "resize_to_megapixels"));
   resizeRow.append(resizeLabel, budgetLabel, stepLabel);
   const sync = () => {
@@ -1436,10 +1436,10 @@ function buildCanvasRow(state) {
 function resizeSwitch(state) {
   const node = state.node;
   const { root: pill, set } = makeSlideSwitch({
-    label: "Resize", offLeft: true,
+    label: "缩放", offLeft: true,
     options: [
-      { value: "off", label: "Off", title: "保持画布尺寸。" },
-      { value: "on", label: "On", title: "缩放到百万像素预算，并把每边按步长取整。" },
+      { value: "off", label: "关", title: "保持画布尺寸。" },
+      { value: "on", label: "开", title: "缩放到百万像素预算，并把每边按步长取整。" },
     ],
     onChange: (key) => {
       const on = key === "on";
@@ -1871,9 +1871,9 @@ function openEditor(state) {
   if (state.modal) return;
   const modal = createElement("div", "ausboss-transform-modal");
   const header = createElement("div", "ausboss-transform-header");
-  header.append(createElement("strong", "", `${state.kind === "video" ? "Video" : "Image"}裁剪 + 旋转 + 扩边`), createElement("span", "ausboss-transform-badge", "AusBoss"));
+  header.append(createElement("strong", "", `${state.kind === "video" ? "视频" : "图像"}裁剪 + 旋转 + 扩边`), createElement("span", "ausboss-transform-badge", "AusBoss"));
   header.append(createElement("span", "spacer"));
-  const cancel = createElement("button", "", "Cancel");
+  const cancel = createElement("button", "", "取消");
   cancel.title = "不保存关闭：把一切恢复成编辑器打开时的样子（Esc）";
   const close = createElement("button", "ausboss-transform-close", "保存并关闭"); header.append(cancel, close);
   const body = createElement("div", "ausboss-transform-body");
@@ -1991,7 +1991,7 @@ function buildStitchSection(state) {
   const blend = makeScrubInput({ value: value(node, "stitch_blend", 32), min: 0, max: 512, step: 1, decimals: 0,
     title: "生成像素过渡到源画面的斜坡宽度，按输出的像素算。和扩边羽化是两回事。",
     onChange: (amount) => { setValue(node, "stitch_blend", amount); draw(state); updateModalInfo(state); }, onSettle: notifyAusbossChange });
-  addLabeledControl(section, "Blend", blend.root, "px");
+  addLabeledControl(section, "混合", blend.root, "px");
   const show = segmentedPill([["off", "off"], ["on", "on"]], (key) => { state.showBlend = key === "on"; show.set(key); draw(state); }, { className: "ausboss-transform-switch" });
   show.set(state.showBlend ? "on" : "off");
   show.pill.title = "给拼接器实际用的粘贴遮罩染色——和后端同一套遮罩算法，按预览分辨率。";
@@ -2011,7 +2011,7 @@ function buildStitchSection(state) {
     painted.set(value(node, "painted_area", "fill"));
     addLabeledControl(section, "绘制区域", painted.pill);
   }
-  const advanced = createElement("details"); advanced.append(createElement("summary", "", "Advanced"));
+  const advanced = createElement("details"); advanced.append(createElement("summary", "", "高级"));
   const grow = makeScrubInput({ value: value(node, "stitch_grow", 0), min: -256, max: 256, step: 1, decimals: 0,
     title: "在斜坡之前移动粘贴边界。正值让生成结果多替换接缝旁的一条源画面；负值保留更多源画面。",
     onChange: (amount) => { setValue(node, "stitch_grow", amount); draw(state); updateModalInfo(state); }, onSettle: notifyAusbossChange });
@@ -2138,15 +2138,15 @@ function buildControls(state, sidebar) {
     for (const item of extra) { const option = createElement("option", "", item); option.value = item; more.append(option); }
     more.title = "来自 ausboss_presets.json 的自定义比例。选一个和点比例按钮一样。";
     more.addEventListener("change", () => { if (more.value) tapRatio(state, more.value); draw(state); updateModalInfo(state); });
-    addLabeledControl(cropSection, "More", more);
+    addLabeledControl(cropSection, "更多", more);
   }
   cropSection.append(createElement("div", "ausboss-transform-help", "点一个比例就把画面扩边到该比例（Fit 选了裁剪时则裁到它）；再点亮的那个回到整张画面。挂锁让形状在拖动时保持不变。拖动画面本身可以在它的扩边范围内移动。"));
 
-  const rotateSection = createElement("section", "ausboss-transform-section"); rotateSection.append(sectionHeading("Rotate", "rotate"));
+  const rotateSection = createElement("section", "ausboss-transform-section"); rotateSection.append(sectionHeading("旋转", "rotate"));
   const rotationNumber = makeScrubInput({ value: Number(value(node, "rotation_degrees", 0)) || 0, min: -180, max: 180, step: 1, fineStep: 0.1, decimals: 1, unit: "°", unitWidth: 22,
     title: "旋转角度：每步 1°，按住 Shift 是 0.1°。裁剪框仍对准画面的同一部分。",
     onChange: (degrees) => setRotation(state, degrees), onSettle: () => { settleRotation(state); notifyAusbossChange(); } });
-  addScrubField(rotateSection, "Degrees", rotationNumber.root);
+  addScrubField(rotateSection, "角度", rotationNumber.root);
   const zeroRotation = createElement("button", "", "重置旋转");
   zeroRotation.addEventListener("click", () => { setRotation(state, 0); settleRotation(state); notifyAusbossChange(); });
   rotateSection.append(zeroRotation);
@@ -2156,18 +2156,18 @@ function buildControls(state, sidebar) {
   color.value = normalizeColor(value(node, "fill_color", "#808080"));
   color.addEventListener("input", () => { setValue(node, "fill_color", color.value); draw(state); });
   color.addEventListener("change", () => notifyAusbossChange());
-  addLabeledControl(padSection, "Fill", color);
+  addLabeledControl(padSection, "填充色", color);
   const featherNumber = makeScrubInput({ value: value(node, "feather", 24), min: 0, max: 4096, step: 1, decimals: 0, unit: "px", unitWidth: 22,
     title: "遮罩羽化，单位像素。", onChange: (amount) => { setValue(node, "feather", amount); draw(state); }, onSettle: notifyAusbossChange });
-  addScrubField(padSection, "Feather", featherNumber.root);
+  addScrubField(padSection, "羽化", featherNumber.root);
   const multiple = makeScrubInput({ value: value(node, "canvas_multiple", 1), min: 1, max: 4096, step: 8, fineStep: 1, decimals: 0, unit: "px", unitWidth: 22, snap: true,
     title: "缩放前把画布宽高对齐到这个数的倍数。会通过加扩边、或裁掉没扩边的边来对齐。填 1 关闭对齐。",
     onChange: (amount) => { setValue(node, "canvas_multiple", amount); draw(state); updateModalInfo(state); }, onSettle: notifyAusbossChange });
-  addScrubField(padSection, "Align", multiple.root);
+  addScrubField(padSection, "对齐", multiple.root);
   // A div, not a label: a label would pass a click on its text to the first button.
   const centre = buildCentreButtons(state);
   const centreRow = createElement("div", "ausboss-transform-centre-row");
-  centreRow.append(createElement("span", "", "Center"), centre.root);
+  centreRow.append(createElement("span", "", "居中"), centre.root);
   padSection.append(centreRow);
   state.editorSyncs.push(centre.sync);
   const resetPad = createElement("button", "", "重置扩边"); resetPad.title = "去掉所有扩边。";
@@ -2185,7 +2185,7 @@ function buildControls(state, sidebar) {
     resizeSection = createElement("section", "ausboss-transform-section");
     resizeSection.append(sectionHeading("缩放输出"));
     resize = resizeSwitch(state);
-    addLabeledControl(resizeSection, "Resize", resize.pill);
+    addLabeledControl(resizeSection, "缩放", resize.pill);
     budget = makeScrubInput({
       value: value(node, "megapixels", 1),
       min: 0.01, max: 16, step: 0.05, fineStep: 0.01, decimals: 2, unit: "MP", unitWidth: 22,
@@ -2193,7 +2193,7 @@ function buildControls(state, sidebar) {
       onChange: (amount) => { setValue(node, "megapixels", amount); draw(state); updateModalInfo(state); },
       onSettle: notifyAusbossChange,
     });
-    addScrubField(resizeSection, "Megapixels", budget.root);
+    addScrubField(resizeSection, "百万像素", budget.root);
     method = createElement("select");
     for (const name of RESIZE_METHODS) {
       const option = createElement("option", "", name); option.value = name; method.append(option);
@@ -2201,7 +2201,7 @@ function buildControls(state, sidebar) {
     method.value = String(value(node, "resize_method", "lanczos"));
     if (!RESIZE_METHODS.includes(method.value)) method.value = "lanczos";
     method.addEventListener("change", () => { setValue(node, "resize_method", method.value); notifyAusbossChange(); });
-    addLabeledControl(resizeSection, "Method", method);
+    addLabeledControl(resizeSection, "方法", method);
     steps = makeScrubInput({
       value: value(node, "resolution_steps", 1),
       min: 1, max: 256, step: 8, fineStep: 1, decimals: 0, unit: "px", unitWidth: 22, snap: true,
@@ -2209,7 +2209,7 @@ function buildControls(state, sidebar) {
       onChange: (step) => { setValue(node, "resolution_steps", step); draw(state); updateModalInfo(state); },
       onSettle: notifyAusbossChange,
     });
-    addScrubField(resizeSection, "Step", steps.root);
+    addScrubField(resizeSection, "步长", steps.root);
   }
 
   const actions = createElement("section", "ausboss-transform-section"); actions.append(sectionHeading("视图与重置"));
@@ -2222,7 +2222,7 @@ function buildControls(state, sidebar) {
   // Live preview of the actual output composite (no overlays), so the final
   // result is always visible while adjusting handles.
   const previewSection = createElement("section", "ausboss-transform-section");
-  previewSection.append(sectionHeading("Preview"));
+  previewSection.append(sectionHeading("预览"));
   const finalPreview = createElement("canvas", "ausboss-final-preview");
   previewSection.append(finalPreview);
   state.finalPreviewCanvas = finalPreview;

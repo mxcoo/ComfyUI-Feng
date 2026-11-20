@@ -30,7 +30,7 @@ export function setSeedLook(node, look) {
 export const SEED_LOOK_MENU = [
   {
     key: "look",
-    label: "Look",
+    label: "外观",
     type: "choice",
     options: SEED_LOOKS,
     default: "full",

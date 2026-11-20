@@ -92,8 +92,8 @@ const NODE_CONFIG = {
     noun: "a mask",
     advanced: MASK_ADVANCED_WIDGETS,
     tools: [
-      { label: "AUTO", title: "自动：按遮罩大小设置扩张和模糊。它读的是这个节点做的遮罩，所以先把工作流跑一次。", action: applyAutoValues },
-      { label: "MORE", title: "展开遮罩高级控制", action: toggleAdvanced },
+      { label: "自动", title: "自动：按遮罩大小设置扩张和模糊。它读的是这个节点做的遮罩，所以先把工作流跑一次。", action: applyAutoValues },
+      { label: "更多", title: "展开遮罩高级控制", action: toggleAdvanced },
     ],
   },
   // Shows the picture with what it found tinted. FIND runs this node alone,
@@ -103,7 +103,7 @@ const NODE_CONFIG = {
     inputName: "image",
     noun: "图片",
     tools: [
-      { label: "FIND", title: "现在就找。只跑这个节点，所以别的节点跑之前就能先看到遮罩。", action: findOnly },
+      { label: "查找", title: "现在就找。只跑这个节点，所以别的节点跑之前就能先看到遮罩。", action: findOnly },
     ],
     readout: (output) => {
       const note = output?.ausboss_mask_by_name?.[0];
@@ -386,7 +386,7 @@ function installStepsSwitch(state, signal) {
   const stop = document.createElement("button");
   stop.type = "button";
   stop.className = "ausboss-input-preview-tool ausboss-steps-stop";
-  stop.textContent = "STOP";
+  stop.textContent = "停止";
   stop.title = "立即停掉这次运行。队列里的下一次照样会开始。";
   stop.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal });
   stop.addEventListener("click", (event) => {

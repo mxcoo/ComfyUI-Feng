@@ -243,6 +243,19 @@ HEAD（`aaf3ae6`）后面还挂 8 个未发版提交，**这次只跟 tag**，�
 > **教训：未提交的合并不能被 `git checkout -- <dir>` 撤销；动手改这类目录前先
 > `cp -a ausboss /tmp/ausboss_bak`。**
 
+### 2.8 第三节：界面短标签清扫（同日收尾）
+
+同步完成后又扫了一遍「一个词的英文标签」——前端文案管线按「纯英文且 ≥2 个英文词」过滤，单词类的按钮/分区名会漏掉。
+
+- 扫法（一次性脚本，不进仓库）：用正则从 `createElement(…, "字面量")`、`addLabeledControl/addScrubField/sectionHeading`、`textContent = "…"`、`label: "…"` 里取第三种参数，排除含中文、含类名/选择器/`${}` 的，人工过一遍。
+- 一共补翻约 110 处，集中在三块：
+  - `web/ausboss/widget_cards/index.js` 的 70 个卡片行标签（`Target→目标`、`Budget→预算`、`Multiple→倍数`、`Filter→滤镜`、`Language→语言`…）；
+  - `web/ausboss/shared/transform_editor.mjs` 的编辑器 chrome（`Reset→重置`、`Cancel→取消`、`Rotate→旋转`、`Preview→预览`、`Fill→填充色`、`Feather→羽化`、`Center→居中`、`Align→对齐`、`Resize→缩放`、`Step→步长`、`Method→方法`、`More→更多`、`Advanced→高级`、`Degrees→角度`、`Megapixels→百万像素`，以及 `Held/Ratio/Source/Custom` 四个状态字 → `保持/比例/原图/自定义`）；
+  - 其余零散：`compare` 的 `Slide/Erase`、`input_preview` 的 `AUTO/MORE/FIND`、`touch_stage` 的 `Pick/Paint/Erase`、`workflow_note` 的 `File/Folder/Size/Note`、`save_image_naming` 的 `Counter/Date/Time/Size`、`seed_look`/`text_look` 的 `Look`、`stitch_seam` 的 `Seam`、`compare_erase_stage` 的 `Erase/Restore`。
+- **故意保留英文**：`A`/`B`（比较图的两侧）、`linked`/`exact`（保存命名的模式标记，文档里也按这个字面写）、`AusBoss` 品牌、`off`/`on` 之类枚举键、`pad`/`resize`（几何函数入参）、`AusBoss: ` 日志前缀。
+- 顺带把文档里与 JS 已经不一致的编辑器按钮名对齐（`AUSBOSS_NODES_ImageCropRotatePad.md`、`AUSBOSS_NODES_VideoCropRotatePadClip.md` 里的 `Open editor / Save & close / Reset crop / Reset view / Reset transform / Inpaint & Stitch → 打开编辑器 / 保存并关闭 / 重置裁剪 / 重置视图 / 重置变换 / 局部重绘与拼接`），并把 `Aspect ratio`/`Fit to ratio` 换成真实控件名「裁切比例」/「适配比例」。
+- 每次改完都要 `node --input-type=module --check < 文件` 逐个过（本轮踩过两次：把 `addLabeledControl(section, "Fill", color)` 连带右括号一起替换，变成 `addLabeledControl(section, "填充色"), color);`，六个文件语法崩），最后统一跑 `python3 tools/check_all.py`。
+
 ---
 
 ## 3. 升级 SOP（上游发新版时照着做）

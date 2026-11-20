@@ -2982,9 +2982,9 @@ export function mountTouchStage(node, host) {
     label: "点击或一笔的作用",
     fit: true,
     options: [
-      { value: "pick", label: "Pick", title: "选取：点一下选中它下面的东西，划一笔选中你划过的那些。按住 Ctrl 或用鼠标右键，可把已选的东西再移出。" },
-      { value: "paint", label: "Paint", title: "涂画：画笔按你画的形状加进遮罩。画到某块区域上的涂画会并入它。按住 Ctrl 或用右键，则改为擦除。" },
-      { value: "erase", label: "Erase", title: "擦除：画笔按你画的形状把遮罩刷掉。按住 Ctrl 或用右键，则改为涂画。" },
+      { value: "pick", label: "点选", title: "选取：点一下选中它下面的东西，划一笔选中你划过的那些。按住 Ctrl 或用鼠标右键，可把已选的东西再移出。" },
+      { value: "paint", label: "涂抹", title: "涂画：画笔按你画的形状加进遮罩。画到某块区域上的涂画会并入它。按住 Ctrl 或用右键，则改为擦除。" },
+      { value: "erase", label: "擦除", title: "擦除：画笔按你画的形状把遮罩刷掉。按住 Ctrl 或用右键，则改为涂画。" },
     ],
     value: face.tool,
     signal,

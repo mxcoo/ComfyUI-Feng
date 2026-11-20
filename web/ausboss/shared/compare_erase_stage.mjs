@@ -814,7 +814,7 @@ export function makeEraser({ node, root, stage, imageA, imageB, signal, onSaved,
   er.bar.className = "ausboss-compare-erasebar";
   er.kindSwitch = makeSlideSwitch({
     label: "画笔的作用",
-    options: [{ value: "erase", label: "Erase" }, { value: "restore", label: "Restore" }],
+    options: [{ value: "erase", label: "擦除" }, { value: "restore", label: "还原" }],
     value: "erase",
     signal,
     onChange: (value) => { er.back = value === "restore"; syncTools(er); schedule(er); },
@@ -930,7 +930,7 @@ export function makeEraser({ node, root, stage, imageA, imageB, signal, onSaved,
   er.layersSwitch = makeSlideSwitch({
     label: "同时保存带图层的 PSD",
     offLeft: true,
-    options: [{ value: "off", label: "off", title: LAYERS_HELP }, { value: "on", label: "on", title: LAYERS_HELP }],
+    options: [{ value: "off", label: "关", title: LAYERS_HELP }, { value: "on", label: "开", title: LAYERS_HELP }],
     value: "off",
     signal,
     onChange: (value) => {
@@ -945,7 +945,7 @@ export function makeEraser({ node, root, stage, imageA, imageB, signal, onSaved,
   er.saveButton.className = "ausboss-compare-savebtn";
   er.saveButton.innerHTML = SAVE_ICON;
   er.saveLabel = document.createElement("span");
-  er.saveLabel.textContent = "Save";
+  er.saveLabel.textContent = "保存";
   er.saveButton.append(er.saveLabel);
   click(er.saveButton, () => save(er));
   er.copyButton = document.createElement("button");
@@ -953,7 +953,7 @@ export function makeEraser({ node, root, stage, imageA, imageB, signal, onSaved,
   er.copyButton.className = "ausboss-compare-copybtn";
   er.copyButton.innerHTML = COPY_ICON;
   er.copyLabel = document.createElement("span");
-  er.copyLabel.textContent = "Copy";
+  er.copyLabel.textContent = "复制";
   er.copyButton.append(er.copyLabel);
   click(er.copyButton, () => copy(er));
   // The PSD choice, Copy and Save keep together at the right end.

@@ -602,7 +602,7 @@ function renderSections(state, scroll) {
 
   if (note.models.length) {
     const section = el("div", "ausboss-note-section");
-    const heading = sectionHeading("Models");
+    const heading = sectionHeading("模型");
     const recheck = el("button", "ausboss-note-mini", "↻ 重新检查文件");
     recheck.type = "button";
     recheck.title = "再找一遍每个文件（把文件移进来之后，或按 R 之后）";
@@ -626,7 +626,7 @@ function renderSections(state, scroll) {
 
   if (note.links.length) {
     const section = el("div", "ausboss-note-section");
-    section.append(sectionHeading("Links"));
+    section.append(sectionHeading("链接"));
     const chips = el("div", "ausboss-note-chips");
     for (const row of note.links) {
       if (row.url) chips.append(externalLink(row.url, "ausboss-note-chip", row.label));
@@ -1063,7 +1063,7 @@ async function openEditor(state) {
       jsonBox.value = JSON.stringify(readForm(), null, 2);
       body.textContent = "";
       body.append(field("卡片 JSON", jsonBox, "就是存在工作流里的原文，点了保存才生效。"));
-      jsonToggle.textContent = "Form";
+      jsonToggle.textContent = "表单";
     } else {
       // Going back to the form discards JSON edits that did not parse.
       try {

@@ -17,7 +17,7 @@ export const PASTE_ONTO_CHOICES = ["crop", "original"];
 export const SEAM_MENU = [
   {
     key: "seam",
-    label: "Seam",
+    label: "接缝",
     type: "choice",
     options: SEAM_CHOICES,
     default: SEAM_CHOICES[0],

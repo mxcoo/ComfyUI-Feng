@@ -91,11 +91,11 @@ function normalizeModel(row) {
 // and reads them back with rowFromCells, so saving the form can't drop a
 // field the card shows, such as the note under the file name.
 export const MODEL_COLUMNS = [
-  { key: "name", label: "File", placeholder: "krea2_turbo_fp8_scaled.safetensors" },
-  { key: "dir", label: "Folder" },
-  { key: "size", label: "Size", placeholder: "13.1 GB" },
+  { key: "name", label: "文件", placeholder: "krea2_turbo_fp8_scaled.safetensors" },
+  { key: "dir", label: "文件夹" },
+  { key: "size", label: "尺寸", placeholder: "13.1 GB" },
   { key: "url", label: "下载地址", placeholder: "https://huggingface.co/.../resolve/main/file.safetensors" },
-  { key: "note", label: "Note", placeholder: "小提示、出处、触发词" },
+  { key: "note", label: "备注", placeholder: "小提示、出处、触发词" },
 ];
 
 // A table row from its cell values, given in the columns' order.

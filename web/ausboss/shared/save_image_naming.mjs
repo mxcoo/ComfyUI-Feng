@@ -8,11 +8,11 @@ export const FORMAT_EXTENSIONS = { png: "png", "webp lossless": "webp", "jxl los
 export const FORMAT_LABELS = { png: "PNG", "webp lossless": "WebP", "jxl lossless": "JXL" };
 
 export const TAGS = [
-  { key: "name_counter", label: "Counter", token: "#####",
+  { key: "name_counter", label: "计数", token: "#####",
     title: "追加下一个没占用的五位数字。开着不会重名；关掉会复用同一个路径，覆盖已有文件。" },
-  { key: "name_date", label: "Date", token: "YYYY-MM-DD", title: "按 YYYY-MM-DD 追加本地保存日期。" },
-  { key: "name_time", label: "Time", token: "HH-mm-ss", title: "按 HH-mm-ss 追加本地保存时间。" },
-  { key: "name_size", label: "Size", token: "WxH", title: "追加图片尺寸，格式 WIDTHxHEIGHT，比如 1024x1024。" },
+  { key: "name_date", label: "日期", token: "YYYY-MM-DD", title: "按 YYYY-MM-DD 追加本地保存日期。" },
+  { key: "name_time", label: "时间", token: "HH-mm-ss", title: "按 HH-mm-ss 追加本地保存时间。" },
+  { key: "name_size", label: "尺寸", token: "WxH", title: "追加图片尺寸，格式 WIDTHxHEIGHT，比如 1024x1024。" },
   { key: "name_batch", label: "Batch #", token: "b###",
     title: "批次出图时追加 b001、b002……，这样能看出每张图在这次运行里的位置。单张图不变。" },
 ];
