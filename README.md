@@ -11,10 +11,62 @@ ComfyUI 自定义节点插件。
 | **Feng 图像滤镜（示例）** | `Feng/示例` | IMAGE 进出，支持反相 / 灰度 / 提亮，可选用 MASK 控制作用区域，并带预览输出 |
 | **Feng 文本重复（示例）** | `Feng/示例` | 把文本按次数拼接，用于不接图片时快速验证插件是否正常 |
 
-> 另有 **54 个 AusBoss 节点**（分类 `🆎 AusBoss/…`）随本插件一起安装：图像裁剪/缩放/对齐、
-> 遮罩与局部重绘（LaMa、Refine Mask、Mask by Touch）、视频裁剪与插帧、分块放大、LoRA 加载、
-> 工作流开关与说明卡等，全部中文界面。实现与汉化方式见 [docs/10-ausboss-port.md](docs/10-ausboss-port.md)，
-> 版本对照与升级方法见 [docs/11-ausboss-maintenance-log.md](docs/11-ausboss-maintenance-log.md)。
+> 另有 **55 个 AusBoss 节点**（分类 `🆎 AusBoss/…`）随本插件一起安装，界面全中文，
+> 见下面的 [AusBoss 节点包](#ausboss-节点包内置已汉化)。
+
+## AusBoss 节点包（内置，已汉化）
+
+把 [ComfyUI-AusBoss](https://github.com/ausboss/ComfyUI-AusBoss)（MIT，作者 ausboss）整个包并进了本插件：
+
+- **版本**：2.26.4（上游 `9e9121a`），随插件升级，不需要另装 AusBoss；
+- **规模**：55 个节点 + 23 条后端路由 + 55 篇节点帮助 + 143 个前端模块；
+- **语言**：节点名、分类、描述、输入标签与提示、下拉的显示文字、右键别名、帮助文档、所有前端面板文案，全中文。
+
+### 分类与节点
+
+| 分类 | 节点 |
+| --- | --- |
+| `🆎 AusBoss/图像`（15） | 对齐图像、颜色匹配、图像比较 A/B、编辑锁、编辑锁还原、图像裁剪 + 旋转 + 扩边、图像文件夹、图像缩放、图像尺寸、加载图像、加载图像 + 扩边、与源图重新对齐（实验性）、保存图像、分块放大、分块放大拼接 |
+| `🆎 AusBoss/实用工具`（22） | 每隔 N 帧选取、拆分批次、合并批次、标注便签、标注图块、释放显存、H3 提示词撰写、布局框、文本、整数、浮点数、数学表达式、提示词变体、Latent 尺寸、运行计时器、种子、显示文本、分步预览、文本行、工作流说明卡、工作流说明磁贴、工作流开关 |
+| `🆎 AusBoss/视频`（8） | 加载音频、加载视频、选择帧、帧插值、FlashVSR 放大、保存视频、视频裁剪 + 旋转 + 扩边 → 单帧、→ 片段 |
+| `🆎 AusBoss/局部重绘`（3） | 局部重绘裁剪、局部重绘拼接、LaMa 局部重绘 |
+| `🆎 AusBoss/遮罩`（3） | 按名字取遮罩、点选取遮罩、遮罩精修 |
+| `🆎 AusBoss/Krea2`（2） | Krea 2 编码、Krea 2 扩图模型补丁 |
+| `🆎 AusBoss/加载`（1） | LoRA 加载器 |
+| `🆎 AusBoss/兼容`（1） | 简易水印去除器（AusBoss 兼容） |
+
+节点内部都有各自的画布控件：图像/视频裁剪带全屏编辑器（缩放、平移、旋转、扩边、局部重绘与拼接），
+比较节点可以滑动/擦除、导出对齐结果与图层 PSD，LoRA 加载器能直接从 Civitai 拉模型信息与触发词，
+工作流开关可以在一条工作流里做分支。每个节点的用法见界面右上角的 **?**（就是那 55 篇中文帮助）。
+
+### 中文到什么程度
+
+- **翻成中文**：节点名与分类、节点描述、输入标签、每个输入的提示气泡、下拉框里显示的选项文字、搜索别名、帮助文档、前端所有按钮/菜单/提示/报错。
+- **保持英文**：下拉框的**取值**（`crop`、`pad`、`input folder`、`one per run` 等）。它们会写进工作流 JSON，也是前端判断和 `/ausboss/*` 接口的入参，翻成中文会让旧工作流和前端逻辑同时失效。这也是为什么界面上看到的是「中文说明 + 英文取值」。
+- 节点用的是 ComfyUI 官方中文口径：**遮罩**（不是「蒙版」）、**局部重绘**（不是「修补」）。
+
+### 依赖与模型
+
+- 后端只用 ComfyUI 自带的东西（torch / numpy / Pillow / PyAV），**本插件不新增第三方依赖**。
+- 需要外部模型的节点，缺模型时会直接说缺哪个：
+  - **LaMa 局部重绘** → `models/lama/big-lama.pt`；
+  - **FlashVSR 放大** → `models/flashvsr/flashvsr_v1.1_fp16.safetensors`。
+- 可选增强（不装也能用，用到时才提示）：`opencv-contrib-python`（遮罩精修的 guided filter）、`pymatting`（alpha matting，抠边更细）、`pillow-jxl-plugin`（JXL 读写）。
+
+### 和官方 AusBoss 共存
+
+如果 `custom_nodes` 里另外还装着官方 AusBoss，本插件会**自动让位**（只让官方那份注册节点和路由），
+避免两套 `/ausboss/*` 路由互相覆盖。想用内置这份就把官方目录移走，重启即可。
+
+### 示例工作流
+
+`ausboss/example_workflows/` 有 12 组工作流（`.json` + 同名 `.jpg` 预览图）：
+FlashVSR 视频放大、Krea 2 局部重绘 / 扩图 / 旋转扩图、Klein 9B 扩图等，拖进 ComfyUI 就能打开。
+
+### 相关文档
+
+- [docs/10-ausboss-port.md](docs/10-ausboss-port.md)：怎么并进来的、桥接原理、汉化分层、数据怎么重新生成；
+- [docs/11-ausboss-maintenance-log.md](docs/11-ausboss-maintenance-log.md)：版本对照、与上游的等价性、升级 SOP、踩过的坑。
 
 ### 多功能提示词预设 怎么用
 
@@ -68,7 +120,9 @@ ComfyUI 自定义节点插件。
 
 - ComfyUI `0.42.3`（V3 节点 API）
 - Python `3.13`
-- 无额外依赖（导入脚本用到 Pillow，ComfyUI 已自带）
+- 无额外依赖：Feng 自己只用标准库 + Pillow（导入脚本），内置的 AusBoss 用 ComfyUI 自带的
+  torch / numpy / Pillow / PyAV；可选的 `opencv-contrib-python`、`pymatting`、`pillow-jxl-plugin`
+  不装也能用，只在用到那项功能时提示。
 
 ## 安装
 
@@ -102,10 +156,24 @@ Feng/
 ├── nodes_batch_loader.py    批量图片加载节点 + 图片列表路由
 ├── preset_store.py          预设数据读写与缩略图路径校验
 ├── presets/                 presets.json（出厂）+ user_presets.json（自建）+ thumbs/
+├── ausboss/                 内置的 AusBoss 节点包
+│   ├── __init__.py          注册 55 个节点（V1 映射，由入口桥接进 V3）
+│   ├── nodes/               97 个实现文件 + 23 条 /ausboss/* 路由
+│   ├── zh/                  nodes.json（中文名/描述/标签/提示）+ localize.py（只改展示字段）
+│   ├── locales/zh/          上游自带的中文参考数据
+│   ├── example_workflows/   12 组示例工作流 + 预览图
+│   └── _version.py          PACK_VERSION / UPSTREAM_COMMIT
 ├── tools/check_all.py       加载自检 + 前端静态检查
+├── tools/check_ausboss.py   AusBoss 专项自检（编译、55 节点、汉化覆盖、前端语法）
+├── tools/check_ausboss_upstream.py  与上游某个 tag/commit 对账
 ├── tools/import_presets.py  从外部风格包导入预设
 ├── web/js/prompt_preset.js  预设面板
 ├── web/js/batch_loader.js   批量图片面板
+├── web/ausboss/             内置 AusBoss 的前端（143 个模块）
+│   ├── <feature>/index.js   每个节点的画布控件
+│   ├── shared/              共用模块（编辑器、时间轴、剪贴板…）
+│   ├── docs/                55 篇中文节点帮助
+│   └── zh_labels/           输入标签的中文化
 ├── docs/                    开发文档
 ├── requirements.txt         第三方依赖
 └── pyproject.toml           项目与发布元数据
@@ -122,9 +190,15 @@ Feng/
 
 > presets/ 目录下的风格卡片与缩略图来自第三方风格包（Fooocus styles、Krea styles 等），
 > 遵循其原始许可，不覆盖于本仓库的 MIT 许可之下。
+>
+> `ausboss/` 与 `web/ausboss/` 来自 [ComfyUI-AusBoss](https://github.com/ausboss/ComfyUI-AusBoss)，
+> 同样是 MIT，原始许可见 [`ausboss/LICENSE`](ausboss/LICENSE)；本仓库对它的改动是：桥接进 V3 入口、
+> 改三处路径与单副本判断、以及整套中文数据与前端文案。
 
 ## 致谢
 
 - Fooocus 风格集合（275 条）
 - Krea / GJJ 离线风格包（397 条）
 - ComfyUI V3 节点 API
+- [ComfyUI-AusBoss](https://github.com/ausboss/ComfyUI-AusBoss)（ausboss，MIT）：本插件内置的
+  55 个节点、前端模块与帮助文档都来自这个包，中文界面是在它之上做的汉化层
