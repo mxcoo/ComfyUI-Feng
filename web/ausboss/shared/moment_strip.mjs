@@ -2,6 +2,8 @@
 // bar as long as the clip, with the cuts as marks. The server reads the script with the same code a run uses,
 // so the bar shows what will happen. It also colours the script box, so the
 // words the node reads as instructions (@1, 3s:, a cut) stand out.
+import { api } from "../../../../scripts/api.js";
+import { app } from "../../../../scripts/app.js";
 import { clipLengthWords, clipSetsDuration, clipTimingFor, linkSource } from "./h3_duration.mjs";
 import { BRAND, chainCallback } from "./index.mjs";
 import { dragRange, moveMoment, retime, rulerSeconds, stripCaption, stripRows, toggleCut, wiredJobs } from "./moment_strip_math.mjs";

@@ -14,6 +14,8 @@
 // switch lays each sampling step over the stage, with a Stop button on the
 // bar (shared/step_preview.mjs).
 
+import { api } from "../../../../scripts/api.js";
+import { app } from "../../../../scripts/app.js";
 import { panelSwitch, primaryAction } from "../shared/panel_controls.mjs";
 import { isForeignRun } from "../shared/prompt_scope.mjs";
 import { executionIdOf, nodeByExecutionId } from "../shared/graph_ids.mjs";

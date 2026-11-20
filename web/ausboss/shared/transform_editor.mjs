@@ -1,3 +1,5 @@
+import { api } from "../../../../scripts/api.js";
+import { app } from "../../../../scripts/app.js";
 import { linkedNodeInfo, timingUnits as clipUnits } from "./timing_links.mjs";
 import { PANEL_LABELS } from "./panel_controls.mjs";
 import { hideInputsInDef, hideWidget } from "./widget_visibility.mjs";

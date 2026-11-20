@@ -406,6 +406,17 @@ def check_frontend(report: Report, data: dict) -> None:
         if unknown:
             report.fail(f"labels.mjs 里有数据里不存在的节点: {', '.join(unknown)}")
 
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(WEB_PACK_DIR)
+        code = _strip_js(text)
+        for name, module in (("api", "scripts/api.js"), ("app", "scripts/app.js")):
+            if not re.search(rf"(?<![\w$.]){name}\.", code):
+                continue
+            pattern = rf"import\s*\{{[^}}]*\b{name}\b[^}}]*\}}\s*from\s*[\"'][^\"']*{re.escape(module)}[\"']"
+            if not re.search(pattern, text):
+                report.fail(f"{rel}: 用到 {name}. 却没有从 {module} 导入（合并时掉 import 会出现「{name} is not defined」）")
+
     report.note(f"前端 {len(files)} 个文件")
 
 

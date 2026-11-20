@@ -14,6 +14,8 @@
 // out. The widgets underneath stay the source of truth: the Duration is
 // max_seconds with end_seconds at 0. A saved end (or a linked Max length)
 // still works: the part a Max length cuts off shows red.
+import { api } from "../../../../scripts/api.js";
+import { app } from "../../../../scripts/app.js";
 import { BRAND, chainCallback, keepDomWidgetWidthAuto, notifyAusbossChange, showToast } from "../shared/index.mjs";
 import { WIDGET_FRAME, fillNodeHeight } from "../shared/panel_layout.mjs";
 import { formatTimecode } from "../shared/timecode.mjs";
